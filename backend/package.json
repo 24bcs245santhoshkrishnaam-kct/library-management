@@ -1,0 +1,24 @@
+{
+  "name": "smart-library-backend",
+  "version": "1.0.0",
+  "description": "Smart Library Management System Backend with AI features",
+  "main": "server.js",
+  "scripts": {
+    "prestart": "lsof -ti :5001 | xargs kill -9 2>/dev/null || true",
+    "start": "node server.js",
+    "seed": "node database/seed.js",
+    "test": "node test/test-all.js && node test/test-e2e-http.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "mysql2": "^3.11.3"
+  },
+  "devDependencies": {},
+  "type": "commonjs"
+}

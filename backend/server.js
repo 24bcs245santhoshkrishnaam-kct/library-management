@@ -1,0 +1,134 @@
+const express = require('express');
+const cors = require('cors');
+const morgan = require('morgan');
+const path = require('path');
+const fs = require('fs');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+const db = require('./config/db');
+const authRoutes = require('./routes/authRoutes');
+const bookRoutes = require('./routes/bookRoutes');
+const aiRoutes = require('./routes/aiRoutes');
+const loanRoutes = require('./routes/loanRoutes');
+const smsRoutes = require('./routes/smsRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+
+const app = express();
+const PORT = process.env.PORT || 5001;
+
+// Middlewares
+app.use(cors());
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use(morgan('dev'));
+
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/books', bookRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/loans', loanRoutes);
+app.use('/api/sms', smsRoutes);
+app.use('/api/admin', adminRoutes);
+
+// System Health Check
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    system: 'Smart Library Management System',
+    timestamp: new Date().toISOString(),
+    mysql_connected: db.isConnected,
+    ai_provider: process.env.AI_PROVIDER || 'gemini',
+    ai_key_configured: Boolean(process.env.AI_API_KEY && process.env.AI_API_KEY.length > 0)
+  });
+});
+
+// Serve static frontend build if it exists
+const frontendDistPath = path.join(__dirname, '../frontend/dist');
+if (fs.existsSync(frontendDistPath)) {
+  app.use(express.static(frontendDistPath));
+  app.get('*', (req, res, next) => {
+    if (req.originalUrl.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(path.join(frontendDistPath, 'index.html'));
+  });
+}
+
+// Centralized 404 handler for unknown API endpoints
+app.use('/api/*', (req, res) => {
+  res.status(404).json({
+    error: 'Endpoint Not Found',
+    message: `Cannot ${req.method} ${req.originalUrl}`
+  });
+});
+
+// Centralized Error Handling Middleware
+app.use((err, req, res, next) => {
+  console.error('[Unhandled Server Error]:', err.message);
+  const status = err.statusCode || 500;
+  res.status(status).json({
+    error: err.name || 'Internal Server Error',
+    message: err.message || 'An unexpected error occurred. Please contact the administrator.'
+  });
+});
+
+const { execSync } = require('child_process');
+
+function freePort(port) {
+  try {
+    const currentPid = process.pid;
+    const output = execSync(`lsof -ti :${port}`, { stdio: ['pipe', 'pipe', 'ignore'] }).toString();
+    const pids = output
+      .trim()
+      .split('\n')
+      .map(p => p.trim())
+      .filter(p => p && p !== String(currentPid));
+
+    if (pids.length > 0) {
+      console.log(`[Server] Freeing port ${port} from process(es): ${pids.join(', ')}...`);
+      execSync(`kill -9 ${pids.join(' ')}`, { stdio: 'ignore' });
+    }
+  } catch (e) {
+    // Port was already free
+  }
+}
+
+// Initialize DB connection and start server
+async function startServer(retries = 2) {
+  console.log('[Server] Initializing Smart Library Backend...');
+  await db.testConnection();
+  await db.initTables();
+
+  // Proactively ensure port is free
+  freePort(PORT);
+
+  const server = app.listen(PORT, () => {
+    console.log(`[Server] Smart Library running at http://localhost:${PORT}`);
+    console.log(`[Server] Health check available at http://localhost:${PORT}/api/health`);
+  });
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      if (retries > 0) {
+        console.warn(`[Server] Port ${PORT} busy. Auto-clearing and retrying in 500ms... (${retries} retries left)`);
+        freePort(PORT);
+        setTimeout(() => startServer(retries - 1), 500);
+        return;
+      }
+      console.error(`\n❌ Error: Port ${PORT} is still busy.`);
+      console.error(`Run this command to free it:`);
+      console.error(`  lsof -ti :${PORT} | xargs kill -9\n`);
+    } else {
+      console.error('[Server Error]:', err);
+    }
+    process.exit(1);
+  });
+
+  return server;
+}
+
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = app;
