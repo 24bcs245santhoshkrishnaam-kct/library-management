@@ -20,11 +20,13 @@ const CATEGORY_SYNONYMS = {
   'database management': ['database', 'databases', 'dbms', 'sql', 'relational'],
   'web development': ['web', 'web development', 'frontend', 'backend', 'full stack', 'fullstack', 'react', 'node', 'javascript'],
   'cloud computing': ['cloud', 'cloud computing', 'virtualization', 'aws', 'azure'],
-  'operating systems': ['operating system', 'operating systems', 'os', 'processes', 'memory']
+  'operating systems': ['operating system', 'operating systems', 'os', 'processes', 'memory'],
+  'shakespeare': ['shakespeare', 'william shakespeare', 'hamlet', 'macbeth', 'othello', 'romeo', 'juliet', 'king lear', 'sonnets', 'bard', 'tragedies', 'elizabethan'],
+  'tamil literature': ['tamil', 'தமிழ்', 'sangam', 'thirukkural', 'திருக்குறள்', 'kural', 'ponniyin selvan', 'பொன்னியின் செல்வன்', 'silappathikaram', 'சிலப்பதிகாரம்', 'kalki', 'கல்கி', 'bharathiyar', 'பாரதியார்', 'sujatha', 'சுஜாதா', 'jayakanthan', 'ஜெயகாந்தன்']
 };
 
 /**
- * Analyzes natural language query
+ * Analyzes natural language query (supports English & Tamil Unicode script)
  */
 function analyzeQuery(rawQuery) {
   const normalized = (rawQuery || '').toLowerCase().trim();
@@ -45,17 +47,17 @@ function analyzeQuery(rawQuery) {
   // Detect matching category from query
   let detectedCategory = null;
   for (const [catName, synonyms] of Object.entries(CATEGORY_SYNONYMS)) {
-    if (synonyms.some(s => normalized.includes(s))) {
+    if (synonyms.some(s => normalized.includes(s.toLowerCase()))) {
       detectedCategory = catName;
       break;
     }
   }
 
-  // Tokenize and remove stop words
+  // Tokenize using Unicode property \p{L}\p{N} so Tamil script and English characters are both fully preserved
   const rawTokens = normalized
-    .replace(/[^\w\s-]/g, ' ')
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
     .split(/\s+/)
-    .filter(t => t.length > 1);
+    .filter(t => t.length > 0);
 
   const keywords = rawTokens.filter(t => !STOP_WORDS.has(t));
 
@@ -70,9 +72,9 @@ function analyzeQuery(rawQuery) {
 }
 
 /**
- * Search books in MySQL with intelligent relevance ranking
+ * Search books in MySQL with intelligent relevance ranking, Tamil & English support
  */
-async function searchBooks({ query, category, department, author, availableOnly } = {}) {
+async function searchBooks({ query, category, department, author, collection, language, availableOnly } = {}) {
   const analysis = analyzeQuery(query);
   
   // Fetch all books from MySQL to compute live scoring and availability
@@ -89,7 +91,17 @@ async function searchBooks({ query, category, department, author, availableOnly 
     params.push(category);
   }
 
-  if (author) {
+  if (collection && collection !== 'All') {
+    sql += ' AND (catalog_collection = ? OR department = ?)';
+    params.push(collection, collection);
+  }
+
+  if (language && language !== 'All') {
+    sql += ' AND language = ?';
+    params.push(language);
+  }
+
+  if (author && author !== 'All') {
     sql += ' AND author LIKE ?';
     params.push(`%${author}%`);
   }
@@ -112,22 +124,38 @@ async function searchBooks({ query, category, department, author, availableOnly 
   // Calculate relevance score for each book
   const scoredBooks = books.map(book => {
     let score = 0;
-    const titleLower = book.title.toLowerCase();
-    const authorLower = book.author.toLowerCase();
-    const catLower = book.category.toLowerCase();
+    const titleLower = (book.title || '').toLowerCase();
+    const authorLower = (book.author || '').toLowerCase();
+    const catLower = (book.category || '').toLowerCase();
     const descLower = (book.description || '').toLowerCase();
+    const altLower = (book.alternate_titles || '').toLowerCase();
+    const keywordsLower = (book.subject_keywords || '').toLowerCase();
+    const skillsLower = (book.skills_covered || '').toLowerCase();
+    const careerLower = (book.career_paths || '').toLowerCase();
 
-    // Exact title match
+    // 1. Exact or partial title match (including transliterated alternate titles)
     if (titleLower.includes(analysis.normalized)) {
-      score += 100;
+      score += 120;
+    } else if (altLower.includes(analysis.normalized)) {
+      score += 110;
     }
 
-    // Category match
-    if (analysis.detectedCategory && catLower.includes(analysis.detectedCategory)) {
+    // 2. Direct author match
+    if (authorLower.includes(analysis.normalized)) {
+      score += 85;
+    }
+
+    // 3. Subject and keyword match
+    if (keywordsLower.includes(analysis.normalized) || skillsLower.includes(analysis.normalized) || careerLower.includes(analysis.normalized)) {
+      score += 65;
+    }
+
+    // 4. Category match
+    if (analysis.detectedCategory && (catLower.includes(analysis.detectedCategory) || titleLower.includes(analysis.detectedCategory))) {
       score += 60;
     }
 
-    // Skill level match
+    // 5. Skill level match
     if (analysis.skillLevel === 'beginner') {
       if (titleLower.includes('beginner') || titleLower.includes('crash course') || titleLower.includes('fundamentals') || titleLower.includes('learning')) {
         score += 40;
@@ -144,15 +172,19 @@ async function searchBooks({ query, category, department, author, availableOnly 
       }
     }
 
-    // Keyword matching
+    // 6. Token keyword matching
     analysis.keywords.forEach(kw => {
-      if (titleLower.includes(kw)) score += 30;
-      if (catLower.includes(kw)) score += 25;
-      if (authorLower.includes(kw)) score += 20;
-      if (descLower.includes(kw)) score += 10;
+      const kwLower = kw.toLowerCase();
+      if (titleLower.includes(kwLower)) score += 35;
+      if (altLower.includes(kwLower)) score += 30;
+      if (keywordsLower.includes(kwLower)) score += 25;
+      if (catLower.includes(kwLower)) score += 25;
+      if (authorLower.includes(kwLower)) score += 20;
+      if (skillsLower.includes(kwLower) || careerLower.includes(kwLower)) score += 20;
+      if (descLower.includes(kwLower)) score += 10;
     });
 
-    // Availability bonus only if the book already matched query intent
+    // 7. Availability bonus if relevant
     if (score > 0 && book.available_copies > 0) {
       score += 5;
     }
@@ -214,11 +246,17 @@ async function getDepartments() {
   return rows.map(r => r.department);
 }
 
+async function getCollections() {
+  const rows = await db.query("SELECT DISTINCT catalog_collection FROM books WHERE catalog_collection IS NOT NULL AND catalog_collection != '' ORDER BY catalog_collection ASC");
+  return rows.map(r => r.catalog_collection);
+}
+
 module.exports = {
   analyzeQuery,
   searchBooks,
   getCategories,
   getAuthors,
   getDepartments,
+  getCollections,
   getBookById
 };

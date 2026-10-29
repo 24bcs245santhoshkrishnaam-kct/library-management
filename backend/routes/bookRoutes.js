@@ -9,6 +9,8 @@ router.get('/filters', bookController.getFilters);
 router.get('/departments', bookController.getDepartments);
 router.get('/recommendations', bookController.getRecommendations);
 router.get('/personalized', authenticateToken, bookController.getPersonalizedBooks);
+router.get('/career-guidance', bookController.getCareerGuidance);
+router.get('/career-roadmap', bookController.getCareerRoadmap);
 router.get('/:id', bookController.getBookById);
 router.get('/:id/related', bookController.getRelatedBooks);
 

@@ -500,6 +500,111 @@ Divya Bharathi,divya@kct.ac.in,24BAI220,AI AND MACHINE LEARNING,+91 99999 22222`
   });
 
   // -------------------------------------------------------------
+  // TEST SECTION 12: SHAKESPEARE, TAMIL & CAREER GUIDANCE AI
+  // -------------------------------------------------------------
+  console.log('\n--- 12. SHAKESPEARE, TAMIL & CAREER GUIDANCE AI ---');
+
+  await check('Verify total catalog has at least 600 books (verified in MySQL)', async () => {
+    const res = await api('/books');
+    assert.strictEqual(res.status, 200);
+    assert(res.data.count >= 600, `Expected total books >= 600, found ${res.data.count}`);
+  });
+
+  await check('Verify at least 50 Shakespeare-related books exist with rich metadata', async () => {
+    const res = await api('/books?collection=Shakespeare%20Collection');
+    assert.strictEqual(res.status, 200);
+    assert(res.data.count >= 50, `Expected >= 50 Shakespeare books, found ${res.data.count}`);
+
+    const sample = res.data.books.find(b => b.title.includes('Hamlet'));
+    assert(sample, 'Must include Hamlet');
+    assert(sample.category.includes('Shakespeare'), 'Category must be under Shakespeare');
+    assert(sample.cover_image && sample.cover_image.startsWith('http'), 'Must have valid cover');
+    assert(sample.total_copies > 0, 'Must have physical copies');
+  });
+
+  await check('Verify at least 50 Tamil-language books exist with Tamil script', async () => {
+    const res = await api('/books?collection=Tamil%20Literature');
+    assert.strictEqual(res.status, 200);
+    assert(res.data.count >= 50, `Expected >= 50 Tamil books, found ${res.data.count}`);
+
+    const sample = res.data.books.find(b => b.title.includes('திருக்குறள்'));
+    assert(sample, 'Must include Thirukkural in Tamil script');
+    assert.strictEqual(sample.language, 'Tamil');
+    assert(sample.alternate_titles.includes('Thirukkural'), 'Must include transliteration');
+  });
+
+  await check('Search books using authentic Tamil script (திருக்குறள்)', async () => {
+    const res = await api('/books?q=%E0%AE%A4%E0%AE%BF%E0%AE%B0%E0%AF%81%E0%AE%95%E0%AF%8D%E0%AE%95%E0%AF%81%E0%AE%B1%E0%AE%B3%E0%AF%8D');
+    assert.strictEqual(res.status, 200);
+    assert(res.data.count > 0, 'Should find Thirukkural via Tamil script search');
+    assert(res.data.books[0].title.includes('திருக்குறள்'));
+  });
+
+  await check('Search books using transliterated English alias (thirukkural)', async () => {
+    const res = await api('/books?q=thirukkural');
+    assert.strictEqual(res.status, 200);
+    assert(res.data.count > 0, 'Should find Thirukkural via transliterated search');
+    assert(res.data.books.some(b => b.alternate_titles && b.alternate_titles.toLowerCase().includes('thirukkural')));
+  });
+
+  await check('Shakespeare recommendations return relevant tragedies, sonnets, and analysis', async () => {
+    const res = await api('/books/recommendations?q=Hamlet');
+    assert.strictEqual(res.status, 200);
+    assert(res.data.exactMatches.length > 0 || res.data.recommendations.length > 0);
+    const recs = [...res.data.exactMatches, ...res.data.recommendations];
+    assert(recs.some(b => b.category.includes('Shakespeare')), 'Recommendations must include Shakespeare books');
+  });
+
+  await check('Tamil recommendations return classical literature and commentaries', async () => {
+    const res = await api('/books/recommendations?q=thirukkural');
+    assert.strictEqual(res.status, 200);
+    const recs = [...res.data.exactMatches, ...res.data.recommendations];
+    assert(recs.some(b => b.department === 'TAMIL LITERATURE' || b.language === 'Tamil'));
+  });
+
+  await check('Career Guidance API returns domain, skills, paths, realistic earnings & source', async () => {
+    const res = await api('/books/career-guidance?q=machine%20learning');
+    assert.strictEqual(res.status, 200);
+    assert(res.data.success);
+    assert(res.data.skillsLearned.length > 0, 'Must return skills');
+    assert(res.data.careerPaths.length > 0, 'Must return career paths');
+    assert(res.data.realWorldApplications.length > 0, 'Must return earning applications');
+    assert(res.data.earningGuidance.india.entryLevel, 'Must return India salary benchmark');
+    assert(res.data.earningGuidance.global.entryLevel, 'Must return Global salary benchmark');
+    assert(res.data.earningGuidance.source.includes('NASSCOM') || res.data.earningGuidance.source.includes('Glassdoor'));
+    assert(res.data.earningGuidance.disclaimer.includes('does not guarantee'), 'Must contain disclaimer');
+    assert(res.data.recommendedNextBooks.length > 0, 'Must return real books from catalog');
+  });
+
+  await check('Career Guidance dynamically adapts to Shakespeare & Humanities subjects', async () => {
+    const res = await api('/books/career-guidance?q=hamlet');
+    assert.strictEqual(res.status, 200);
+    assert(res.data.domain.includes('English Literature') || res.data.domain.includes('Drama'));
+    assert(res.data.careerPaths.some(p => p.includes('Teacher') || p.includes('Editor') || p.includes('Critic')));
+  });
+
+  await check('Career Guidance dynamically adapts to Tamil literature & Translation subjects', async () => {
+    const res = await api('/books/career-guidance?q=thirukkural');
+    assert.strictEqual(res.status, 200);
+    assert(res.data.domain.includes('Tamil Literature') || res.data.domain.includes('Translation'));
+    assert(res.data.careerPaths.some(p => p.includes('Translator') || p.includes('Teacher') || p.includes('Scholar')));
+  });
+
+  await check('Career Goal Roadmap returns 4 progressive levels of real library books', async () => {
+    const res = await api('/books/career-roadmap?goal=aiml_engineer');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.data.totalStages, 4);
+    for (const stage of res.data.stages) {
+      assert(stage.stageName);
+      assert(stage.books.length > 0, `Stage ${stage.stageName} must have books`);
+      for (const b of stage.books) {
+        assert(b.id > 0, 'Must have valid book ID in catalog');
+        assert(b.title, 'Must have valid book title');
+      }
+    }
+  });
+
+  // -------------------------------------------------------------
   // SUMMARY
   // -------------------------------------------------------------
   console.log('\n================================================================');

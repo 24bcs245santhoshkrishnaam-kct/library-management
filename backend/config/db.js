@@ -135,6 +135,13 @@ async function initTables() {
     try { await conn.query("ALTER TABLE books ADD COLUMN cover_image VARCHAR(500) NULL"); } catch (e) {}
     try { await conn.query("ALTER TABLE books ADD COLUMN is_damaged INT NOT NULL DEFAULT 0"); } catch (e) {}
     try { await conn.query("ALTER TABLE books ADD COLUMN is_lost INT NOT NULL DEFAULT 0"); } catch (e) {}
+    try { await conn.query("ALTER TABLE books ADD COLUMN language VARCHAR(50) NOT NULL DEFAULT 'English'"); } catch (e) {}
+    try { await conn.query("ALTER TABLE books ADD COLUMN alternate_titles TEXT NULL"); } catch (e) {}
+    try { await conn.query("ALTER TABLE books ADD COLUMN subject_keywords TEXT NULL"); } catch (e) {}
+    try { await conn.query("ALTER TABLE books ADD COLUMN skills_covered TEXT NULL"); } catch (e) {}
+    try { await conn.query("ALTER TABLE books ADD COLUMN career_paths TEXT NULL"); } catch (e) {}
+    try { await conn.query("ALTER TABLE books ADD COLUMN catalog_collection VARCHAR(100) NOT NULL DEFAULT 'Engineering'"); } catch (e) {}
+    try { await conn.query("ALTER TABLE books ADD COLUMN metadata_source VARCHAR(150) NULL"); } catch (e) {}
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS transactions (

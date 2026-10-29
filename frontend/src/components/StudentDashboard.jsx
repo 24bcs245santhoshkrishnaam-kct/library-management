@@ -7,8 +7,11 @@ import {
   getMyLoanStatus, 
   getBooks, 
   getDepartments,
+  getCatalogueFilters,
   getRecommendations, 
   getPersonalizedBooks,
+  getCareerGuidance,
+  getCareerRoadmap,
   borrowBookOnline,
   renewBookLoan,
   updateProfile
@@ -37,7 +40,13 @@ import {
   Edit2,
   X,
   ShieldCheck,
-  CheckCircle
+  CheckCircle,
+  Briefcase,
+  TrendingUp,
+  DollarSign,
+  Award,
+  Compass,
+  Globe
 } from 'lucide-react';
 
 export default function StudentDashboard({ onAskChatbot }) {
@@ -57,6 +66,8 @@ export default function StudentDashboard({ onAskChatbot }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('All');
   const [departments, setDepartments] = useState(['All']);
+  const [selectedCollection, setSelectedCollection] = useState('All');
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [availableOnly, setAvailableOnly] = useState(false);
 
   // Selected book for Details Modal
@@ -64,9 +75,26 @@ export default function StudentDashboard({ onAskChatbot }) {
   const [borrowingBookId, setBorrowingBookId] = useState(null);
   const [notification, setNotification] = useState(null);
 
-  // AI Personalized recommendations
+  // AI Recommendations State
   const [aiPicks, setAiPicks] = useState([]);
   const [loadingAI, setLoadingAI] = useState(false);
+  const [aiSubTab, setAiSubTab] = useState('picks'); // 'picks' | 'career' | 'goal'
+  
+  // AI Dynamic Search in Recommendations
+  const [aiSearchQuery, setAiSearchQuery] = useState('');
+  const [aiSearchResults, setAiSearchResults] = useState(null);
+  const [loadingAiSearch, setLoadingAiSearch] = useState(false);
+
+  // Career Guidance State
+  const [careerSearchInput, setCareerSearchInput] = useState('Machine Learning');
+  const [careerData, setCareerData] = useState(null);
+  const [loadingCareer, setLoadingCareer] = useState(false);
+  const [careerCurrency, setCareerCurrency] = useState('india'); // 'india' | 'global'
+
+  // Career Goal Roadmap State
+  const [selectedGoal, setSelectedGoal] = useState('aiml_engineer');
+  const [roadmapData, setRoadmapData] = useState(null);
+  const [loadingRoadmap, setLoadingRoadmap] = useState(false);
 
   // History Filter: 'all' | 'unoverdue' | 'overdue'
   const [historyFilter, setHistoryFilter] = useState('all');
@@ -97,14 +125,22 @@ export default function StudentDashboard({ onAskChatbot }) {
     }
   };
 
-  // Load Catalog Books
-  const fetchBooks = async (query = searchQuery, dept = selectedDept, avail = availableOnly) => {
+  // Load Catalog Books with collection & category support
+  const fetchBooks = async (
+    query = searchQuery, 
+    dept = selectedDept, 
+    avail = availableOnly,
+    collection = selectedCollection,
+    category = selectedCategory
+  ) => {
     setLoadingCatalog(true);
     try {
       const res = await getBooks({
         query: query.trim() || undefined,
-        department: dept !== 'All' ? dept : undefined,
-        available: avail ? 'true' : undefined
+        department: (dept && dept !== 'All') ? dept : undefined,
+        available: avail ? 'true' : undefined,
+        collection: (collection && collection !== 'All') ? collection : undefined,
+        category: (category && category !== 'All') ? category : undefined
       });
       setCatalogBooks(res.books || []);
     } catch (err) {
@@ -114,18 +150,60 @@ export default function StudentDashboard({ onAskChatbot }) {
     }
   };
 
-  // Load Departments
+  // Load Departments and Filters
   const fetchDepts = async () => {
     try {
-      const res = await getDepartments();
-      if (res.departments) {
-        setDepartments(['All', ...res.departments]);
+      const res = await getCatalogueFilters();
+      if (res && res.departments) {
+        setDepartments(res.departments);
       }
     } catch (err) {
-      console.warn('Depts fetch notice:', err.message);
+      console.error('Failed to load departments:', err);
     }
   };
 
+  // Fetch Career Guidance
+  const fetchCareerInfo = async (term = careerSearchInput) => {
+    setLoadingCareer(true);
+    try {
+      const res = await getCareerGuidance({ q: term });
+      setCareerData(res);
+    } catch (err) {
+      console.error('Failed to load career guidance:', err);
+    } finally {
+      setLoadingCareer(false);
+    }
+  };
+
+  // Fetch Career Roadmap
+  const fetchRoadmap = async (goal = selectedGoal) => {
+    setLoadingRoadmap(true);
+    try {
+      const res = await getCareerRoadmap(goal);
+      setRoadmapData(res);
+    } catch (err) {
+      console.error('Failed to load career roadmap:', err);
+    } finally {
+      setLoadingRoadmap(false);
+    }
+  };
+
+  // Run AI Search
+  const runAiSearch = async (term = aiSearchQuery) => {
+    if (!term || !term.trim()) {
+      setAiSearchResults(null);
+      return;
+    }
+    setLoadingAiSearch(true);
+    try {
+      const res = await getRecommendations({ q: term.trim() });
+      setAiSearchResults(res);
+    } catch (err) {
+      console.error('Failed to run AI search:', err);
+    } finally {
+      setLoadingAiSearch(false);
+    }
+  };
   // Load AI Recommendations
   const fetchAiPicks = async () => {
     setLoadingAI(true);
@@ -144,6 +222,8 @@ export default function StudentDashboard({ onAskChatbot }) {
     fetchBooks();
     fetchDepts();
     fetchAiPicks();
+    fetchCareerInfo('Machine Learning');
+    fetchRoadmap('aiml_engineer');
   }, [user]);
 
   useEffect(() => {
@@ -471,7 +551,7 @@ export default function StudentDashboard({ onAskChatbot }) {
                   onClick={() => setActiveNav('browse')}
                 >
                   <BookOpen size={16} />
-                  <span>Browse 500+ Books</span>
+                  <span>Browse 600+ Books</span>
                 </button>
               </div>
 
@@ -498,8 +578,10 @@ export default function StudentDashboard({ onAskChatbot }) {
                         <BookOpen size={20} />
                       </div>
                     </div>
-                    <h3 className="fw-bold text-navy-900 mb-0">525+</h3>
-                    <span className="text-muted" style={{ fontSize: '0.74rem' }}>Physical textbook titles</span>
+                    <h3 className="fw-bold text-navy-900 mb-0">
+                      {catalogBooks.length > 0 ? `${catalogBooks.length}+` : '625+'}
+                    </h3>
+                    <span className="text-muted" style={{ fontSize: '0.74rem' }}>Engineering, Shakespeare & Tamil</span>
                   </div>
                 </div>
 
@@ -695,7 +777,7 @@ export default function StudentDashboard({ onAskChatbot }) {
                     Library Catalog ({catalogBooks.length} Books)
                   </h3>
                   <p className="text-secondary small mb-0">
-                    Showing curated textbook covers. Click any book to view complete metadata, syllabus info, and borrow online.
+                    Curated engineering, Shakespeare, and Tamil literature catalog. Click any book cover to view full details and borrow online.
                   </p>
                 </div>
 
@@ -706,7 +788,7 @@ export default function StudentDashboard({ onAskChatbot }) {
                     onClick={() => {
                       const next = !availableOnly;
                       setAvailableOnly(next);
-                      fetchBooks(searchQuery, selectedDept, next);
+                      fetchBooks(searchQuery, selectedDept, next, selectedCollection, selectedCategory);
                     }}
                   >
                     Available Copies Only
@@ -714,7 +796,7 @@ export default function StudentDashboard({ onAskChatbot }) {
                 </div>
               </div>
 
-              {/* Large Search Bar */}
+              {/* Large Search Bar supporting English and Tamil script */}
               <div className="p-2 bg-white rounded-4 border shadow-xs mb-3 d-flex align-items-center gap-2">
                 <div className="ps-3 text-muted">
                   <Search size={20} />
@@ -722,11 +804,11 @@ export default function StudentDashboard({ onAskChatbot }) {
                 <input
                   type="text"
                   className="form-control border-0 shadow-none px-2"
-                  placeholder="Search 525+ books by title, topic, algorithm, author..."
+                  placeholder="Search 625+ books in English, தமிழ் (e.g. Thirukkural / திருக்குறள், Hamlet, AI, DSA, Kalki)..."
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value);
-                    fetchBooks(e.target.value, selectedDept, availableOnly);
+                    fetchBooks(e.target.value, selectedDept, availableOnly, selectedCollection, selectedCategory);
                   }}
                 />
                 {searchQuery && (
@@ -735,7 +817,7 @@ export default function StudentDashboard({ onAskChatbot }) {
                     className="btn btn-sm btn-light border-0 me-2"
                     onClick={() => {
                       setSearchQuery('');
-                      fetchBooks('', selectedDept, availableOnly);
+                      fetchBooks('', selectedDept, availableOnly, selectedCollection, selectedCategory);
                     }}
                   >
                     Clear
@@ -743,27 +825,115 @@ export default function StudentDashboard({ onAskChatbot }) {
                 )}
               </div>
 
-              {/* Department Filters Pills */}
-              <div className="d-flex align-items-center gap-2 overflow-auto pb-2 mb-3">
+              {/* Collection Tabs */}
+              <div className="d-flex align-items-center gap-2 overflow-auto pb-2 mb-2">
                 <span className="small text-muted fw-semibold me-1 d-flex align-items-center gap-1">
-                  <Filter size={14} /> Dept:
+                  <Library size={14} /> Collection:
                 </span>
-                {departments.map(dept => (
+                {[
+                  { id: 'All', label: 'All Collections' },
+                  { id: 'Engineering', label: 'Engineering (500+ Books)' },
+                  { id: 'Shakespeare Collection', label: 'Shakespeare Collection (50+ Works)' },
+                  { id: 'Tamil Literature', label: 'Tamil Literature (50+ தமிழ் நூல்கள்)' }
+                ].map(col => (
                   <button
-                    key={dept}
+                    key={col.id}
                     type="button"
-                    className={`filter-pill ${selectedDept === dept ? 'active' : ''}`}
+                    className={`filter-pill ${selectedCollection === col.id ? 'active' : ''}`}
                     onClick={() => {
-                      setSelectedDept(dept);
-                      fetchBooks(searchQuery, dept, availableOnly);
+                      setSelectedCollection(col.id);
+                      setSelectedCategory('All');
+                      setSelectedDept('All');
+                      fetchBooks(searchQuery, 'All', availableOnly, col.id, 'All');
                     }}
                   >
-                    {dept}
+                    {col.label}
                   </button>
                 ))}
               </div>
 
-              {/* Books Grid — Picture + Book Name Only */}
+              {/* Sub-Filters based on active collection */}
+              {selectedCollection === 'Shakespeare Collection' && (
+                <div className="d-flex align-items-center gap-2 overflow-auto pb-2 mb-3 bg-light p-2 rounded-3 border">
+                  <span className="small text-navy-900 fw-bold me-1">Shakespeare Genres:</span>
+                  {[
+                    'All',
+                    'Shakespeare — Tragedies',
+                    'Shakespeare — Comedies',
+                    'Shakespeare — Histories',
+                    'Shakespeare — Plays',
+                    'Shakespeare — Poetry',
+                    'Shakespeare — Literary Analysis',
+                    'Shakespeare — Biography and Criticism'
+                  ].map(cat => (
+                    <button
+                      key={cat}
+                      type="button"
+                      className={`btn btn-xs py-1 px-2.5 rounded-pill small ${selectedCategory === cat ? 'btn-navy text-white fw-semibold' : 'btn-white bg-white border text-secondary'}`}
+                      style={{ fontSize: '0.78rem' }}
+                      onClick={() => {
+                        setSelectedCategory(cat);
+                        fetchBooks(searchQuery, selectedDept, availableOnly, selectedCollection, cat);
+                      }}
+                    >
+                      {cat.replace('Shakespeare — ', '')}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {selectedCollection === 'Tamil Literature' && (
+                <div className="d-flex align-items-center gap-2 overflow-auto pb-2 mb-3 bg-light p-2 rounded-3 border">
+                  <span className="small text-navy-900 fw-bold me-1">தமிழ் பிரிவுகள்:</span>
+                  {[
+                    'All',
+                    'Tamil Classics',
+                    'Tamil Literature',
+                    'Tamil Novels',
+                    'Tamil Poetry',
+                    'Tamil History',
+                    'Tamil Grammar',
+                    'Tamil Short Stories',
+                    'Tamil Language and Culture'
+                  ].map(cat => (
+                    <button
+                      key={cat}
+                      type="button"
+                      className={`btn btn-xs py-1 px-2.5 rounded-pill small ${selectedCategory === cat ? 'btn-teal text-white fw-semibold' : 'btn-white bg-white border text-secondary'}`}
+                      style={{ fontSize: '0.78rem' }}
+                      onClick={() => {
+                        setSelectedCategory(cat);
+                        fetchBooks(searchQuery, selectedDept, availableOnly, selectedCollection, cat);
+                      }}
+                    >
+                      {cat.replace('Tamil ', '')}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {selectedCollection === 'Engineering' && (
+                <div className="d-flex align-items-center gap-2 overflow-auto pb-2 mb-3">
+                  <span className="small text-muted fw-semibold me-1 d-flex align-items-center gap-1">
+                    <Filter size={14} /> Dept:
+                  </span>
+                  {departments.filter(d => d !== 'ENGLISH LITERATURE' && d !== 'TAMIL LITERATURE').map(dept => (
+                    <button
+                      key={dept}
+                      type="button"
+                      className={`filter-pill ${selectedDept === dept ? 'active' : ''}`}
+                      onClick={() => {
+                        setSelectedDept(dept);
+                        fetchBooks(searchQuery, dept, availableOnly, selectedCollection, selectedCategory);
+                      }}
+                    >
+                      {dept}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Books Grid — Picture + Book Name Only (STRICT REQUIREMENT) */}
               {loadingCatalog ? (
                 <div className="text-center py-5">
                   <div className="spinner-border text-teal-600" role="status"></div>
@@ -773,7 +943,7 @@ export default function StudentDashboard({ onAskChatbot }) {
                 <div className="text-center py-5 bg-white rounded-4 border">
                   <BookOpen size={36} className="text-muted mb-2 opacity-50" />
                   <h6 className="fw-bold text-navy-900 mb-1">No Books Matched</h6>
-                  <p className="text-muted small">Try searching for different keywords or select "All" departments.</p>
+                  <p className="text-muted small">Try searching with English or Tamil keywords or select "All Collections".</p>
                 </div>
               ) : (
                 <div className="student-book-grid">
@@ -790,45 +960,510 @@ export default function StudentDashboard({ onAskChatbot }) {
           )}
 
           {/* ==============================================================
-              VIEW 3: AI RECOMMENDATIONS
+              VIEW 3: AI RECOMMENDATIONS & CAREER GUIDANCE
              ============================================================== */}
           {activeNav === 'ai' && (
             <div>
+              {/* Top Banner with 3 Sub-Tabs */}
               <div className="p-4 rounded-4 bg-white border mb-4">
-                <div className="d-flex align-items-center gap-2 mb-1">
-                  <Sparkles size={22} className="text-teal-600" />
-                  <h3 className="fw-bold text-navy-900 mb-0" style={{ letterSpacing: '-0.02em' }}>
-                    AI Recommendations Engine
-                  </h3>
+                <div className="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-3">
+                  <div className="d-flex align-items-center gap-2">
+                    <Sparkles size={24} className="text-teal-600" />
+                    <div>
+                      <h3 className="fw-bold text-navy-900 mb-0" style={{ letterSpacing: '-0.02em' }}>
+                        AI Recommendations & Career Engine
+                      </h3>
+                      <p className="text-secondary small mb-0">
+                        Contextual book recommendations, career mapping, and verified earning opportunities.
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <p className="text-secondary small mb-0">
-                  Powered by TF-IDF similarity vectors, student curriculum graphing, and syllabus cross-recommendation.
-                </p>
+
+                {/* Sub-Navigation Pills */}
+                <div className="d-flex align-items-center gap-2 border-top pt-3 flex-wrap">
+                  <button
+                    type="button"
+                    className={`btn btn-sm rounded-pill px-3 py-1.5 fw-semibold d-flex align-items-center gap-1.5 ${
+                      aiSubTab === 'picks' ? 'btn-teal' : 'btn-light border text-secondary'
+                    }`}
+                    onClick={() => setAiSubTab('picks')}
+                  >
+                    <Sparkles size={14} />
+                    <span>Curated Recommendations</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`btn btn-sm rounded-pill px-3 py-1.5 fw-semibold d-flex align-items-center gap-1.5 ${
+                      aiSubTab === 'career' ? 'btn-teal' : 'btn-light border text-secondary'
+                    }`}
+                    onClick={() => setAiSubTab('career')}
+                  >
+                    <Briefcase size={14} />
+                    <span>Career Paths & Earning Opportunities</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`btn btn-sm rounded-pill px-3 py-1.5 fw-semibold d-flex align-items-center gap-1.5 ${
+                      aiSubTab === 'goal' ? 'btn-teal' : 'btn-light border text-secondary'
+                    }`}
+                    onClick={() => setAiSubTab('goal')}
+                  >
+                    <Compass size={14} />
+                    <span>Find Books for My Career Goal</span>
+                  </button>
+                </div>
               </div>
 
-              {loadingAI ? (
-                <div className="text-center py-5">
-                  <div className="spinner-border text-teal-600" role="status"></div>
-                  <div className="mt-2 text-muted small">Computing personalized recommendations...</div>
-                </div>
-              ) : (
+              {/* SUB-TAB 1: CURATED AI RECOMMENDATIONS & SEARCH */}
+              {aiSubTab === 'picks' && (
                 <div>
-                  <h5 className="fw-bold text-navy-900 mb-3">Recommended For Your Academic Journey</h5>
-                  <div className="student-book-grid">
-                    {aiPicks.map(book => (
-                      <div key={book.id} className="d-flex flex-column">
-                        <BookCard
-                          book={book}
-                          onSelectBook={(b) => setSelectedBook(b)}
-                        />
-                        <div className="mt-1 px-1">
-                          <span className="text-muted" style={{ fontSize: '0.72rem', lineHeight: '1.2' }}>
-                            💡 {book.recommendation_reason || 'Highly relevant to your degree.'}
+                  {/* Dynamic AI Search Bar */}
+                  <div className="bg-white rounded-4 border p-3 mb-4 shadow-xs">
+                    <label className="fw-bold text-navy-900 small mb-2 d-flex align-items-center gap-1.5">
+                      <Search size={15} className="text-teal-600" />
+                      Search Any Book or Topic for Contextual AI Recommendations:
+                    </label>
+                    <div className="d-flex align-items-center gap-2">
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="Try 'Operating Systems', 'Machine Learning', 'Hamlet', 'Thirukkural', 'Kalki'..."
+                        value={aiSearchQuery}
+                        onChange={(e) => setAiSearchQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') runAiSearch(aiSearchQuery);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-teal px-4 flex-shrink-0"
+                        onClick={() => runAiSearch(aiSearchQuery)}
+                        disabled={loadingAiSearch}
+                      >
+                        {loadingAiSearch ? 'Analyzing...' : 'Get AI Picks'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* AI Search Results */}
+                  {aiSearchResults && (
+                    <div className="bg-white rounded-4 border p-4 mb-4">
+                      <div className="d-flex align-items-center justify-content-between mb-3">
+                        <h5 className="fw-bold text-navy-900 mb-0">
+                          AI Contextual Results for "{aiSearchResults.query}"
+                        </h5>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-link text-muted"
+                          onClick={() => setAiSearchResults(null)}
+                        >
+                          Clear Results
+                        </button>
+                      </div>
+
+                      {aiSearchResults.relatedSubjects && aiSearchResults.relatedSubjects.length > 0 && (
+                        <div className="d-flex align-items-center gap-1.5 mb-3 flex-wrap">
+                          <span className="small text-muted fw-semibold">Related Concepts:</span>
+                          {aiSearchResults.relatedSubjects.map((sub, i) => (
+                            <span key={i} className="badge bg-light text-navy-900 border rounded-pill px-2.5 py-1 small">
+                              {sub}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="student-book-grid">
+                        {[...(aiSearchResults.exactMatches || []), ...(aiSearchResults.recommendations || [])].slice(0, 8).map(book => (
+                          <div key={book.id} className="d-flex flex-column">
+                            <BookCard
+                              book={book}
+                              onSelectBook={(b) => setSelectedBook(b)}
+                            />
+                            <div className="mt-1 px-1">
+                              <span className="text-muted" style={{ fontSize: '0.72rem', lineHeight: '1.2' }}>
+                                💡 {book.recommendation_reason || `Recommended because this book covers themes related to "${aiSearchResults.query}".`}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Personalized Recommendations */}
+                  <div className="bg-white rounded-4 border p-4">
+                    <div className="d-flex align-items-center justify-content-between mb-3">
+                      <div>
+                        <h5 className="fw-bold text-navy-900 mb-0">Recommended For Your Academic Journey</h5>
+                        <p className="text-secondary small mb-0">
+                          Based on curriculum enrollment, student borrowing history, and degree requirements.
+                        </p>
+                      </div>
+                    </div>
+
+                    {loadingAI ? (
+                      <div className="text-center py-5 text-muted small">
+                        <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                        Computing personalized recommendations...
+                      </div>
+                    ) : (
+                      <div className="student-book-grid">
+                        {aiPicks.map(book => (
+                          <div key={book.id} className="d-flex flex-column">
+                            <BookCard
+                              book={book}
+                              onSelectBook={(b) => setSelectedBook(b)}
+                            />
+                            <div className="mt-1 px-1">
+                              <span className="text-muted" style={{ fontSize: '0.72rem', lineHeight: '1.2' }}>
+                                💡 {book.recommendation_reason || 'Highly relevant to your curriculum.'}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* SUB-TAB 2: CAREER PATHS & EARNING OPPORTUNITIES */}
+              {aiSubTab === 'career' && (
+                <div>
+                  {/* Topic Selector & Presets */}
+                  <div className="bg-white rounded-4 border p-4 mb-4">
+                    <h5 className="fw-bold text-navy-900 mb-2 d-flex align-items-center gap-2">
+                      <Briefcase size={20} className="text-teal-600" />
+                      Explore Career Paths & Earning Opportunities By Subject
+                    </h5>
+                    <p className="text-secondary small mb-3">
+                      Discover the exact skills books teach, industry careers they open up, and realistic earning benchmarks.
+                    </p>
+
+                    {/* Quick Presets */}
+                    <div className="d-flex align-items-center gap-1.5 flex-wrap mb-3">
+                      <span className="small text-muted fw-semibold me-1">Quick Select:</span>
+                      {[
+                        'Machine Learning',
+                        'Web Development',
+                        'Shakespeare',
+                        'Tamil Literature',
+                        'Cybersecurity',
+                        'Operating Systems',
+                        'Business'
+                      ].map(preset => (
+                        <button
+                          key={preset}
+                          type="button"
+                          className={`btn btn-xs py-1 px-2.5 rounded-pill small ${
+                            careerSearchInput === preset ? 'btn-teal text-white fw-semibold' : 'btn-light border text-secondary'
+                          }`}
+                          style={{ fontSize: '0.78rem' }}
+                          onClick={() => {
+                            setCareerSearchInput(preset);
+                            fetchCareerInfo(preset);
+                          }}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Search Custom Subject */}
+                    <div className="d-flex align-items-center gap-2">
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="Type any book title or field (e.g. Python, Algorithms, Thirukkural, Hamlet)..."
+                        value={careerSearchInput}
+                        onChange={(e) => setCareerSearchInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') fetchCareerInfo(careerSearchInput);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-teal px-4 flex-shrink-0"
+                        onClick={() => fetchCareerInfo(careerSearchInput)}
+                        disabled={loadingCareer}
+                      >
+                        {loadingCareer ? 'Analyzing...' : 'Inspect Career'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Career & Earning Guidance Display */}
+                  {loadingCareer ? (
+                    <div className="text-center py-5 bg-white rounded-4 border">
+                      <div className="spinner-border text-teal-600" role="status"></div>
+                      <div className="mt-2 text-muted small">Synthesizing career opportunities and salary benchmarks...</div>
+                    </div>
+                  ) : careerData ? (
+                    <div className="bg-white rounded-4 border p-4 mb-4">
+                      {/* Domain Header */}
+                      <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 pb-3 mb-4 border-bottom">
+                        <div>
+                          <span className="badge-active-teal px-3 py-1 rounded-pill small fw-semibold mb-1 d-inline-block">
+                            Subject Domain
                           </span>
+                          <h4 className="fw-bold text-navy-900 mb-0">{careerData.domain}</h4>
+                        </div>
+
+                        {/* Currency Toggle */}
+                        <div className="d-flex align-items-center gap-1.5 p-1 bg-light rounded-pill border">
+                          <button
+                            type="button"
+                            className={`btn btn-sm rounded-pill px-3 py-1 small fw-semibold ${
+                              careerCurrency === 'india' ? 'btn-navy text-white shadow-xs' : 'btn-light text-secondary border-0'
+                            }`}
+                            onClick={() => setCareerCurrency('india')}
+                          >
+                            India (₹ INR)
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn btn-sm rounded-pill px-3 py-1 small fw-semibold ${
+                              careerCurrency === 'global' ? 'btn-navy text-white shadow-xs' : 'btn-light text-secondary border-0'
+                            }`}
+                            onClick={() => setCareerCurrency('global')}
+                          >
+                            Global ($ USD)
+                          </button>
                         </div>
                       </div>
-                    ))}
+
+                      {/* 2-Column Grid: Skills & Careers */}
+                      <div className="row g-4 mb-4">
+                        {/* Skills Learned */}
+                        <div className="col-12 col-md-6">
+                          <div className="p-3.5 rounded-3 bg-light border h-100">
+                            <h6 className="fw-bold text-navy-900 mb-2.5 d-flex align-items-center gap-2">
+                              <Award size={18} className="text-teal-600" />
+                              Skills & Concepts You Can Learn
+                            </h6>
+                            <ul className="mb-0 ps-3 small text-secondary">
+                              {careerData.skillsLearned.map((skill, i) => (
+                                <li key={i} className="mb-1.5">{skill}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+
+                        {/* Possible Career Paths */}
+                        <div className="col-12 col-md-6">
+                          <div className="p-3.5 rounded-3 bg-light border h-100">
+                            <h6 className="fw-bold text-navy-900 mb-2.5 d-flex align-items-center gap-2">
+                              <Briefcase size={18} className="text-teal-600" />
+                              Possible Career Paths
+                            </h6>
+                            <div className="d-flex flex-wrap gap-2 mb-2">
+                              {careerData.careerPaths.map((role, i) => (
+                                <span key={i} className="badge bg-white text-navy-900 border rounded-pill px-3 py-1.5 small fw-semibold shadow-xs">
+                                  {role}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="text-muted mt-2" style={{ fontSize: '0.74rem' }}>
+                              *Roles generally require degree qualifications, portfolio projects, or certifications in addition to foundational reading.
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* How People Earn Money */}
+                      <div className="mb-4 p-3.5 rounded-3 bg-light border">
+                        <h6 className="fw-bold text-navy-900 mb-2 d-flex align-items-center gap-2">
+                          <TrendingUp size={18} className="text-teal-600" />
+                          How People Earn Money With These Skills
+                        </h6>
+                        <ul className="mb-0 ps-3 small text-secondary">
+                          {careerData.realWorldApplications.map((app, i) => (
+                            <li key={i} className="mb-1.5">{app}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Realistic Salary Benchmarks */}
+                      {careerData.earningGuidance && (
+                        <div className="p-4 rounded-4 border bg-white shadow-xs mb-4">
+                          <div className="d-flex align-items-center justify-content-between mb-3">
+                            <div className="d-flex align-items-center gap-2">
+                              <DollarSign size={20} className="text-teal-600" />
+                              <h5 className="fw-bold text-navy-900 mb-0">Realistic Compensation Benchmarks</h5>
+                            </div>
+                            <span className="badge bg-light text-muted border px-2.5 py-1 small">
+                              Region: {careerCurrency === 'india' ? 'India (INR)' : 'Global / International (USD)'}
+                            </span>
+                          </div>
+
+                          <div className="row g-3 mb-3">
+                            <div className="col-12 col-md-4">
+                              <div className="p-3 rounded-3 bg-light border text-center">
+                                <div className="text-muted small fw-semibold mb-1">Entry-Level / Fresher</div>
+                                <h4 className="fw-bold text-navy-900 mb-0">
+                                  {careerCurrency === 'india'
+                                    ? careerData.earningGuidance.india.entryLevel
+                                    : careerData.earningGuidance.global.entryLevel}
+                                </h4>
+                                <div className="text-muted" style={{ fontSize: '0.72rem' }}>First 0-2 years of career</div>
+                              </div>
+                            </div>
+
+                            <div className="col-12 col-md-4">
+                              <div className="p-3 rounded-3 bg-light border text-center">
+                                <div className="text-muted small fw-semibold mb-1">Experienced Professional</div>
+                                <h4 className="fw-bold text-teal-700 mb-0">
+                                  {careerCurrency === 'india'
+                                    ? careerData.earningGuidance.india.experienced
+                                    : careerData.earningGuidance.global.experienced}
+                                </h4>
+                                <div className="text-muted" style={{ fontSize: '0.72rem' }}>5+ years of verified industry work</div>
+                              </div>
+                            </div>
+
+                            <div className="col-12 col-md-4">
+                              <div className="p-3 rounded-3 bg-light border text-center">
+                                <div className="text-muted small fw-semibold mb-1">Freelance / Contract Rates</div>
+                                <h4 className="fw-bold text-navy-900 mb-0">
+                                  {careerCurrency === 'india'
+                                    ? careerData.earningGuidance.india.freelance
+                                    : careerData.earningGuidance.global.freelance}
+                                </h4>
+                                <div className="text-muted" style={{ fontSize: '0.72rem' }}>Per hour or client milestone</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Source and Disclaimer */}
+                          <div className="p-3 bg-light rounded-3 border">
+                            <div className="small text-navy-900 fw-semibold mb-1 d-flex align-items-center gap-1.5">
+                              <Globe size={14} className="text-teal-600" />
+                              Data Source & Methodology:
+                            </div>
+                            <div className="text-muted small mb-2">
+                              {careerData.earningGuidance.source}
+                            </div>
+                            <div className="text-muted small fst-italic" style={{ lineHeight: '1.4' }}>
+                              ⚠️ <strong>Ethical Disclaimer:</strong> {careerData.earningGuidance.disclaimer}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Recommended Next Books From Catalog */}
+                      {careerData.recommendedNextBooks && careerData.recommendedNextBooks.length > 0 && (
+                        <div>
+                          <div className="d-flex align-items-center justify-content-between mb-3">
+                            <div className="d-flex align-items-center gap-2">
+                              <BookOpen size={18} className="text-teal-600" />
+                              <h5 className="fw-bold text-navy-900 mb-0">Recommended Library Books to Build These Skills</h5>
+                            </div>
+                            <span className="text-muted small">Available in College Library</span>
+                          </div>
+
+                          <div className="student-book-grid">
+                            {careerData.recommendedNextBooks.map(book => (
+                              <BookCard
+                                key={book.id}
+                                book={book}
+                                onSelectBook={(b) => setSelectedBook(b)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              {/* SUB-TAB 3: FIND BOOKS FOR MY CAREER GOAL */}
+              {aiSubTab === 'goal' && (
+                <div>
+                  {/* Goal Selector */}
+                  <div className="bg-white rounded-4 border p-4 mb-4">
+                    <h5 className="fw-bold text-navy-900 mb-2 d-flex align-items-center gap-2">
+                      <Compass size={20} className="text-teal-600" />
+                      Find Books for My Career Goal
+                    </h5>
+                    <p className="text-secondary small mb-3">
+                      Select your career target. The AI structures a 4-level textbook reading sequence using actual library books in stock.
+                    </p>
+
+                    {/* Goal Buttons Grid */}
+                    <div className="row g-2">
+                      {[
+                        { id: 'aiml_engineer', label: '🤖 AI / ML Engineer' },
+                        { id: 'software_developer', label: '💻 Software Developer' },
+                        { id: 'web_developer', label: '🌐 Full-Stack Web Dev' },
+                        { id: 'data_analyst', label: '📊 Data Analyst' },
+                        { id: 'cybersecurity', label: '🛡️ Cybersecurity Defense' },
+                        { id: 'english_literature', label: '🎭 English Literature & Drama' },
+                        { id: 'tamil_scholar', label: '📜 Tamil Classical & Translation' },
+                        { id: 'teaching_research', label: '🎓 Academic Teaching & Research' },
+                        { id: 'business_entrepreneurship', label: '💼 Business & Startup' },
+                        { id: 'personal_finance', label: '📈 Personal Finance & FinTech' }
+                      ].map(g => (
+                        <div key={g.id} className="col-12 col-sm-6 col-lg-4 col-xl">
+                          <button
+                            type="button"
+                            className={`btn w-100 py-2.5 px-2 rounded-3 small fw-semibold text-truncate text-start ${
+                              selectedGoal === g.id ? 'btn-teal' : 'btn-light border text-navy-900'
+                            }`}
+                            onClick={() => {
+                              setSelectedGoal(g.id);
+                              fetchRoadmap(g.id);
+                            }}
+                          >
+                            {g.label}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
+
+                  {/* Goal Stages Roadmap */}
+                  {loadingRoadmap ? (
+                    <div className="text-center py-5 bg-white rounded-4 border">
+                      <div className="spinner-border text-teal-600" role="status"></div>
+                      <div className="mt-2 text-muted small">Generating career progression path...</div>
+                    </div>
+                  ) : roadmapData ? (
+                    <div>
+                      {/* Goal Title Banner */}
+                      <div className="p-3 bg-light rounded-3 border mb-4">
+                        <h5 className="fw-bold text-navy-900 mb-1">{roadmapData.goalTitle}</h5>
+                        <p className="text-secondary small mb-0">{roadmapData.description}</p>
+                      </div>
+
+                      {/* 4 Levels */}
+                      <div className="d-flex flex-column gap-4">
+                        {roadmapData.stages.map((stage, idx) => (
+                          <div key={idx} className="bg-white rounded-4 border p-4 shadow-xs">
+                            <div className="d-flex align-items-center gap-2 mb-3">
+                              <span className="badge bg-teal-50 text-teal-700 border border-teal-200 rounded-pill px-3 py-1 small fw-bold">
+                                Step {idx + 1}
+                              </span>
+                              <h5 className="fw-bold text-navy-900 mb-0">{stage.stageName}</h5>
+                            </div>
+
+                            <div className="student-book-grid">
+                              {stage.books.map(b => (
+                                <BookCard
+                                  key={b.id}
+                                  book={b}
+                                  onSelectBook={(selected) => setSelectedBook(selected)}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>

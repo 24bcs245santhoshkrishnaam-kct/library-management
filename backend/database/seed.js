@@ -492,6 +492,15 @@ async function seed(forceClean = false) {
 
     await conn.commit();
     console.log('[Seed] Database migration & seeding completed with 100% success!');
+
+    // Automatically seed Shakespeare and Tamil collections
+    try {
+      const { seedAdditionalCollections } = require('./seedAdditionalCollections');
+      await seedAdditionalCollections();
+    } catch (e) {
+      console.warn('[Seed] Notice on additional collections seeding:', e.message);
+    }
+
     return true;
   } catch (err) {
     await conn.rollback();

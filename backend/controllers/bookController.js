@@ -4,7 +4,7 @@ const db = require('../config/db');
 
 async function searchBooks(req, res) {
   try {
-    const { q, query, category, department, author, available } = req.query;
+    const { q, query, category, department, author, available, collection, language } = req.query;
     const searchQuery = q || query || '';
     const availableOnly = available === 'true' || available === true;
 
@@ -13,6 +13,8 @@ async function searchBooks(req, res) {
       category,
       department,
       author,
+      collection,
+      language,
       availableOnly
     });
 
@@ -23,6 +25,8 @@ async function searchBooks(req, res) {
       filters: { 
         category: category || 'All', 
         department: department || 'All',
+        collection: collection || 'All',
+        language: language || 'All',
         author: author || 'All', 
         availableOnly 
       },
@@ -55,11 +59,13 @@ async function getFilters(req, res) {
     const categories = await searchService.getCategories();
     const authors = await searchService.getAuthors();
     const departments = await searchService.getDepartments();
+    const collections = await searchService.getCollections();
     res.json({
       success: true,
       departments: ['All', ...departments],
       categories: ['All', ...categories],
-      authors: ['All', ...authors]
+      authors: ['All', ...authors],
+      collections: ['All', ...collections]
     });
   } catch (err) {
     res.status(500).json({ error: 'Internal Server Error', message: err.message });
@@ -112,6 +118,29 @@ async function getPersonalizedBooks(req, res) {
   } catch (err) {
     console.error('[Personalized Recommendations Error]:', err);
     res.status(500).json({ error: 'Personalized Error', message: err.message });
+  }
+}
+
+async function getCareerGuidance(req, res) {
+  try {
+    const { bookId, q, query } = req.query;
+    const identifier = bookId || q || query || '';
+    const guidance = await aiRecommendationService.getCareerGuidanceForBook(identifier);
+    res.json({ success: true, ...guidance });
+  } catch (err) {
+    console.error('[Career Guidance Error]:', err);
+    res.status(500).json({ error: 'Career Guidance Error', message: err.message });
+  }
+}
+
+async function getCareerRoadmap(req, res) {
+  try {
+    const { goal } = req.query;
+    const roadmap = await aiRecommendationService.getCareerGoalRoadmap(goal || 'aiml_engineer');
+    res.json({ success: true, ...roadmap });
+  } catch (err) {
+    console.error('[Career Roadmap Error]:', err);
+    res.status(500).json({ error: 'Career Roadmap Error', message: err.message });
   }
 }
 
@@ -236,6 +265,8 @@ module.exports = {
   getRecommendations,
   getRelatedBooks,
   getPersonalizedBooks,
+  getCareerGuidance,
+  getCareerRoadmap,
   createBook,
   updateBook,
   deleteBook

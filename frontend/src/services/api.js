@@ -60,6 +60,16 @@ export const getPersonalizedBooks = async () => {
   return res.data;
 };
 
+export const getCareerGuidance = async (params = {}) => {
+  const res = await API.get('/books/career-guidance', { params });
+  return res.data;
+};
+
+export const getCareerRoadmap = async (goal = 'aiml_engineer') => {
+  const res = await API.get('/books/career-roadmap', { params: { goal } });
+  return res.data;
+};
+
 export const createBook = async (bookData) => {
   const res = await API.post('/books', bookData);
   return res.data;
