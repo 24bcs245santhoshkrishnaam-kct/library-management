@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { BookOpen } from 'lucide-react';
+import { generateFallbackCoverDataUri } from '../utils/coverGenerator';
 
 /**
  * STRICT REQUIREMENT (Section 5):
@@ -10,11 +11,8 @@ import { BookOpen } from 'lucide-react';
  */
 export default function BookCard({ book, onSelectBook }) {
   const [imageLoaded, setImageLoaded] = useState(false);
-  const [imageError, setImageError] = useState(false);
-
-  // Fallback high-quality engineering book placeholder
-  const fallbackCover = 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=400&q=80';
-  const coverSrc = (!imageError && book.cover_image) ? book.cover_image : fallbackCover;
+  const fallbackCover = generateFallbackCoverDataUri(book);
+  const [coverSrc, setCoverSrc] = useState(book.cover_image || fallbackCover);
 
   return (
     <div 
@@ -35,7 +33,9 @@ export default function BookCard({ book, onSelectBook }) {
           loading="lazy"
           onLoad={() => setImageLoaded(true)}
           onError={() => {
-            setImageError(true);
+            if (coverSrc !== fallbackCover) {
+              setCoverSrc(fallbackCover);
+            }
             setImageLoaded(true);
           }}
         />

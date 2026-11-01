@@ -14,8 +14,15 @@ import {
   getCareerRoadmap,
   borrowBookOnline,
   renewBookLoan,
-  updateProfile
+  returnBookLoan,
+  getBorrowingMode,
+  updateProfile,
+  getStudentNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead
 } from '../services/api';
+import CountdownTimer from './CountdownTimer';
+import { formatINR } from '../utils/currencyFormatter';
 import { 
   LayoutDashboard, 
   BookOpen, 
@@ -108,9 +115,49 @@ export default function StudentDashboard({ onAskChatbot }) {
   });
   const [savingProfile, setSavingProfile] = useState(false);
 
+  // Student Notifications State (Feature 2 & 5)
+  const [notificationsList, setNotificationsList] = useState([]);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+
+  const unreadNotificationsCount = notificationsList.filter(n => !n.is_read).length;
+
+  const fetchNotifications = async (silent = false) => {
+    if (!silent) setLoadingNotifications(true);
+    try {
+      const res = await getStudentNotifications();
+      setNotificationsList(res.notifications || []);
+    } catch (err) {
+      console.error('Failed to load notifications:', err);
+    } finally {
+      if (!silent) setLoadingNotifications(false);
+    }
+  };
+
+  const handleMarkAsRead = async (notificationId) => {
+    try {
+      await markNotificationAsRead(notificationId);
+      setNotificationsList(prev =>
+        prev.map(n => (n.id === notificationId ? { ...n, is_read: true, read_at: new Date().toISOString() } : n))
+      );
+    } catch (err) {
+      console.error('Failed to mark notification as read:', err);
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      await markAllNotificationsAsRead();
+      setNotificationsList(prev =>
+        prev.map(n => ({ ...n, is_read: true, read_at: new Date().toISOString() }))
+      );
+    } catch (err) {
+      console.error('Failed to mark all notifications as read:', err);
+    }
+  };
+
   // Load Loans & Summary
-  const fetchLoans = async () => {
-    setLoadingLoans(true);
+  const fetchLoans = async (silent = false) => {
+    if (!silent) setLoadingLoans(true);
     try {
       const [loansRes, summaryRes] = await Promise.all([
         getMyLoans(),
@@ -121,9 +168,18 @@ export default function StudentDashboard({ onAskChatbot }) {
     } catch (err) {
       console.error('Failed to load student loans:', err);
     } finally {
-      setLoadingLoans(false);
+      if (!silent) setLoadingLoans(false);
     }
   };
+
+  // Real-time polling for student loans and notifications every 4 seconds
+  useEffect(() => {
+    const pollTimer = setInterval(() => {
+      fetchLoans(true);
+      fetchNotifications(true);
+    }, 4000);
+    return () => clearInterval(pollTimer);
+  }, []);
 
   // Load Catalog Books with collection & category support
   const fetchBooks = async (
@@ -224,7 +280,14 @@ export default function StudentDashboard({ onAskChatbot }) {
     fetchAiPicks();
     fetchCareerInfo('Machine Learning');
     fetchRoadmap('aiml_engineer');
+    fetchNotifications();
   }, [user]);
+
+  useEffect(() => {
+    if (activeNav === 'notifications') {
+      fetchNotifications();
+    }
+  }, [activeNav]);
 
   useEffect(() => {
     if (user) {
@@ -236,24 +299,47 @@ export default function StudentDashboard({ onAskChatbot }) {
     }
   }, [user]);
 
-  // Online Borrow Action
+  // Online Borrow Action (Feature 1, 2, 3: Live Countdown & Immediate Display)
   const handleBorrow = async (book) => {
     setBorrowingBookId(book.id);
     try {
       const res = await borrowBookOnline(book.id);
       setNotification({
         type: 'success',
-        message: res.message || `Successfully borrowed "${book.title}"! Due date: 11 November 2026.`
+        message: res.message || `Successfully borrowed "${book.title}"!`
       });
       setSelectedBook(null);
-      await Promise.all([fetchLoans(), fetchBooks()]);
+      // Immediately fetch latest borrowing records and notifications from DB
+      await Promise.all([fetchLoans(), fetchBooks(), fetchNotifications(true)]);
+      // FEATURE 1: Immediately switch to Borrowed Books section so student sees it right away
+      setActiveNav('loans');
+      return { success: true };
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Borrow failed';
+      setNotification({
+        type: 'danger',
+        message: msg
+      });
+      return { success: false, message: msg };
+    } finally {
+      setBorrowingBookId(null);
+    }
+  };
+
+  // Student Self-Service Return Action (Feature 1)
+  const handleReturn = async (loanId, title) => {
+    try {
+      const res = await returnBookLoan(loanId);
+      setNotification({
+        type: 'success',
+        message: res.message || `Book "${title}" successfully returned! Library copies restored.`
+      });
+      await Promise.all([fetchLoans(), fetchBooks(), fetchNotifications(true)]);
     } catch (err) {
       setNotification({
         type: 'danger',
-        message: err.response?.data?.message || err.message || 'Borrow failed'
+        message: err.response?.data?.message || err.message || 'Failed to return book'
       });
-    } finally {
-      setBorrowingBookId(null);
     }
   };
 
@@ -333,7 +419,7 @@ export default function StudentDashboard({ onAskChatbot }) {
             <Library size={22} className="text-white" />
           </div>
           <div>
-            <h6 className="fw-bold mb-0 text-navy-900" style={{ fontSize: '0.94rem' }}>Smart Library</h6>
+            <h6 className="fw-bold mb-0 text-navy-900" style={{ fontSize: '0.94rem' }}>KCT AI Smart Library</h6>
             <span className="text-muted" style={{ fontSize: '0.72rem' }}>Student Portal</span>
           </div>
         </div>
@@ -420,11 +506,18 @@ export default function StudentDashboard({ onAskChatbot }) {
 
           <button
             type="button"
-            className={`sidebar-nav-item ${activeNav === 'notifications' ? 'active' : ''}`}
+            className={`sidebar-nav-item ${activeNav === 'notifications' ? 'active' : ''} d-flex align-items-center justify-content-between`}
             onClick={() => setActiveNav('notifications')}
           >
-            <Bell size={18} />
-            <span>Notifications</span>
+            <div className="d-flex align-items-center gap-2.5">
+              <Bell size={18} />
+              <span>Notifications</span>
+            </div>
+            {unreadNotificationsCount > 0 && (
+              <span className="badge bg-danger rounded-pill px-2 py-0.5 small shadow-xs" style={{ fontSize: '0.72rem' }}>
+                {unreadNotificationsCount}
+              </span>
+            )}
           </button>
         </nav>
 
@@ -482,6 +575,24 @@ export default function StudentDashboard({ onAskChatbot }) {
           </div>
 
           <div className="d-flex align-items-center gap-3">
+            <button
+              type="button"
+              className="btn btn-sm btn-light border position-relative d-flex align-items-center justify-content-center p-2 rounded-circle"
+              title="Notifications & Overdue Reminders"
+              onClick={() => setActiveNav('notifications')}
+              style={{ width: '36px', height: '36px' }}
+            >
+              <Bell size={16} className={unreadNotificationsCount > 0 ? "text-danger" : "text-secondary"} />
+              {unreadNotificationsCount > 0 && (
+                <span 
+                  className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger border border-white"
+                  style={{ fontSize: '0.62rem', padding: '0.25em 0.45em' }}
+                >
+                  {unreadNotificationsCount}
+                </span>
+              )}
+            </button>
+
             <button
               type="button"
               className="btn btn-sm btn-outline-navy d-flex align-items-center gap-1.5"
@@ -542,7 +653,7 @@ export default function StudentDashboard({ onAskChatbot }) {
                     Welcome back, {user?.name}!
                   </h2>
                   <p className="text-secondary small mb-0">
-                    Welcome to the Smart College Library. Explore 500+ engineering titles, track return deadlines, and borrow books online.
+                    Welcome to KCT AI Smart Library — Autonomous Academic Knowledge Center. Explore 600+ catalog titles, track return deadlines, and borrow books online.
                   </p>
                 </div>
                 <button
@@ -1499,15 +1610,15 @@ export default function StudentDashboard({ onAskChatbot }) {
                   <p className="text-secondary small">You currently have no checked-out books.</p>
                 </div>
               ) : (
-                <div className="table-responsive">
+                <div className="table-responsive bg-white rounded-4 border shadow-xs">
                   <table className="table-clean">
                     <thead>
                       <tr>
-                        <th>Book</th>
-                        <th>Department</th>
-                        <th>Issue Date</th>
-                        <th>Due Date</th>
-                        <th>Status</th>
+                        <th>Book Details</th>
+                        <th>Borrowed Date & Time</th>
+                        <th>Return Due Date</th>
+                        <th>Remaining Time (Live Countdown)</th>
+                        <th>Borrowing Status</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
@@ -1515,12 +1626,53 @@ export default function StudentDashboard({ onAskChatbot }) {
                       {activeLoans.map(loan => (
                         <tr key={loan.transaction_id}>
                           <td>
-                            <div className="fw-semibold text-navy-900">{loan.title}</div>
-                            <div className="text-muted" style={{ fontSize: '0.74rem' }}>{loan.author} • Shelf {loan.shelf_location || 'A1'}</div>
+                            <div className="d-flex align-items-center gap-2.5">
+                              {loan.cover_image ? (
+                                <img 
+                                  src={loan.cover_image} 
+                                  alt={loan.title} 
+                                  className="rounded shadow-xs border flex-shrink-0"
+                                  style={{ width: '42px', height: '58px', objectFit: 'cover' }}
+                                  onError={(e) => { e.target.style.display = 'none'; }}
+                                />
+                              ) : (
+                                <div 
+                                  className="rounded bg-light d-flex align-items-center justify-content-center text-muted border flex-shrink-0"
+                                  style={{ width: '42px', height: '58px' }}
+                                >
+                                  <BookOpen size={20} />
+                                </div>
+                              )}
+                              <div>
+                                <div className="fw-bold text-navy-900 small">{loan.title}</div>
+                                <div className="text-muted" style={{ fontSize: '0.74rem' }}>
+                                  By {loan.author}
+                                </div>
+                                <div className="text-secondary" style={{ fontSize: '0.7rem' }}>
+                                  Dept: <strong>{loan.book_department || 'CSE'}</strong> • Shelf: {loan.shelf_location || 'A1'}
+                                </div>
+                              </div>
+                            </div>
                           </td>
-                          <td><span className="badge-active-teal px-2 py-0.5 rounded-pill small">{loan.book_department || 'CSE'}</span></td>
-                          <td>{loan.issue_date}</td>
-                          <td><strong className={loan.is_overdue ? 'text-danger' : 'text-navy-900'}>{loan.due_date}</strong></td>
+                          <td>
+                            <div className="text-navy-900 small fw-medium">{loan.issue_date}</div>
+                            <span className="badge bg-light text-muted border rounded-pill" style={{ fontSize: '0.68rem' }}>
+                              Duration: {loan.duration || '6 days'}
+                            </span>
+                          </td>
+                          <td>
+                            <strong className={loan.is_overdue ? 'text-danger' : 'text-navy-900'}>
+                              {loan.due_date}
+                            </strong>
+                          </td>
+                          <td>
+                            <CountdownTimer 
+                              dueDate={loan.due_date}
+                              dueDateTimestamp={loan.due_date_timestamp}
+                              status={loan.status}
+                              isOverdue={loan.is_overdue}
+                            />
+                          </td>
                           <td>
                             {loan.is_overdue ? (
                               <span className={`badge-overdue badge-overdue-${loan.overdue_color}`}>
@@ -1528,18 +1680,28 @@ export default function StudentDashboard({ onAskChatbot }) {
                               </span>
                             ) : (
                               <span className="badge-issued-blue px-2.5 py-1 rounded-pill small fw-semibold">
-                                Active Unoverdue ({loan.days_left}d left)
+                                Active ({loan.days_left}d left)
                               </span>
                             )}
                           </td>
                           <td>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-outline-navy rounded-pill py-1 px-3"
-                              onClick={() => handleRenew(loan.transaction_id, loan.title)}
-                            >
-                              Renew (+14d)
-                            </button>
+                            <div className="d-flex align-items-center gap-1.5 flex-wrap">
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-danger rounded-pill py-1 px-2.5 small fw-semibold"
+                                title="Return book to library"
+                                onClick={() => handleReturn(loan.transaction_id, loan.title)}
+                              >
+                                Return Book
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-navy rounded-pill py-1 px-2.5 small"
+                                onClick={() => handleRenew(loan.transaction_id, loan.title)}
+                              >
+                                Renew
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1579,15 +1741,12 @@ export default function StudentDashboard({ onAskChatbot }) {
                           <span className="badge-active-teal px-2 py-0.5 rounded-pill small">
                             {loan.book_department || 'Engineering'}
                           </span>
-                          {loan.is_overdue ? (
-                            <span className={`badge-overdue badge-overdue-${loan.overdue_color}`}>
-                              {loan.days_overdue} Days Overdue
-                            </span>
-                          ) : (
-                            <span className="badge-issued-blue px-2.5 py-0.5 rounded-pill small fw-semibold">
-                              {loan.days_left} Days Remaining (Unoverdue)
-                            </span>
-                          )}
+                          <CountdownTimer 
+                            dueDate={loan.due_date}
+                            dueDateTimestamp={loan.due_date_timestamp}
+                            status={loan.status}
+                            isOverdue={loan.is_overdue}
+                          />
                         </div>
 
                         <h5 className="fw-bold text-navy-900 mb-1">{loan.title}</h5>
@@ -1600,7 +1759,7 @@ export default function StudentDashboard({ onAskChatbot }) {
 
                         {loan.is_overdue && (
                           <div className="text-danger small fw-semibold mb-3">
-                            ⚠️ Late fine accrued: ${loan.accrued_fine.toFixed(2)} ($5.00/day)
+                            ⚠️ Late fine accrued: {formatINR(loan.accrued_fine)} (₹5.00/day)
                           </div>
                         )}
 
@@ -1721,10 +1880,10 @@ export default function StudentDashboard({ onAskChatbot }) {
                             <td>
                               {isLateReturn ? (
                                 <strong className="text-danger">
-                                  ${(parseFloat(p.fine_amount) || (p.days_late * 5.00) || 25.00).toFixed(2)}
+                                  {formatINR(parseFloat(p.fine_amount) || (p.days_late * 5.00) || 25.00)}
                                 </strong>
                               ) : (
-                                <span className="text-muted small">$0.00 (No Fine)</span>
+                                <span className="text-muted small">₹0.00 (No Fine)</span>
                               )}
                             </td>
                           </tr>
@@ -1838,42 +1997,149 @@ export default function StudentDashboard({ onAskChatbot }) {
           )}
 
           {/* ==============================================================
-              VIEW 8: NOTIFICATIONS
+              VIEW 8: NOTIFICATIONS (Feature 2 & 5)
              ============================================================== */}
           {activeNav === 'notifications' && (
             <div>
-              <div className="mb-4">
-                <h3 className="fw-bold text-navy-900 mb-1" style={{ letterSpacing: '-0.02em' }}>
-                  Library Notifications & SMS History
-                </h3>
-                <p className="text-secondary small mb-0">
-                  Automated notifications dispatched to your registered mobile number: <strong>{user?.contact_number || '+91 98765 43210'}</strong>
-                </p>
-              </div>
-
-              <div className="d-flex flex-column gap-3">
-                {overdueLoans.length > 0 && (
-                  <div className="p-3 rounded-3 border border-danger bg-danger bg-opacity-10 d-flex align-items-center gap-3">
-                    <AlertTriangle size={24} className="text-danger flex-shrink-0" />
-                    <div>
-                      <div className="fw-bold text-danger small">Overdue Notice Dispatched</div>
-                      <div className="text-secondary small">
-                        Automated SMS alert was triggered for {overdueLoans.length} unreturned book(s). Please return before fine accumulation.
-                      </div>
-                    </div>
+              <div className="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+                <div>
+                  <div className="d-flex align-items-center gap-2">
+                    <h3 className="fw-bold text-navy-900 mb-0" style={{ letterSpacing: '-0.02em' }}>
+                      Library Notifications & Overdue Reminders
+                    </h3>
+                    {unreadNotificationsCount > 0 && (
+                      <span className="badge bg-danger rounded-pill px-2.5 py-1 small fw-bold">
+                        {unreadNotificationsCount} Unread
+                      </span>
+                    )}
                   </div>
-                )}
-
-                <div className="p-3 rounded-3 border bg-white d-flex align-items-center gap-3">
-                  <CheckCircle2 size={24} className="text-teal-600 flex-shrink-0" />
-                  <div>
-                    <div className="fw-bold text-navy-900 small">Account Connected</div>
-                    <div className="text-muted small">
-                      Your student library borrower account is synchronized with the college central database.
-                    </div>
-                  </div>
+                  <p className="text-secondary small mb-0 mt-1">
+                    Notifications strictly scoped to your student account: <strong>{user?.contact_number || '+91 98765 43210'}</strong> ({user?.email})
+                  </p>
+                </div>
+                <div className="d-flex align-items-center gap-2">
+                  {unreadNotificationsCount > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-teal d-flex align-items-center gap-1.5"
+                      onClick={handleMarkAllAsRead}
+                    >
+                      <CheckCircle2 size={14} />
+                      <span>Mark All as Read ({unreadNotificationsCount})</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border d-flex align-items-center gap-1.5"
+                    onClick={() => fetchNotifications()}
+                    disabled={loadingNotifications}
+                  >
+                    <Bell size={14} className="text-teal-600" />
+                    <span>Refresh</span>
+                  </button>
                 </div>
               </div>
+
+              {loadingNotifications ? (
+                <div className="text-center py-5">
+                  <div className="spinner-border text-teal-600" role="status"></div>
+                  <div className="mt-2 text-muted small">Loading your notifications...</div>
+                </div>
+              ) : notificationsList.length === 0 ? (
+                <div className="text-center py-5 bg-white rounded-4 border">
+                  <Bell size={36} className="text-muted mb-2 opacity-50" />
+                  <h6 className="fw-bold text-navy-900 mb-1">No Active Alerts</h6>
+                  <p className="text-secondary small mb-0">
+                    You currently have no overdue reminder notices. Your borrowing records are clear.
+                  </p>
+                </div>
+              ) : (
+                <div className="d-flex flex-column gap-3">
+                  {notificationsList.map(notif => (
+                    <div 
+                      key={notif.id} 
+                      className={`p-3.5 rounded-3 border bg-white shadow-xs transition-all ${!notif.is_read ? 'border-teal' : ''}`}
+                      style={{ 
+                        borderLeft: notif.type === 'InApp' ? '4px solid #0d9488' : '4px solid #f59e0b',
+                        backgroundColor: !notif.is_read ? '#f8fafc' : '#ffffff'
+                      }}
+                    >
+                      <div className="d-flex align-items-start justify-content-between flex-wrap gap-2 mb-2">
+                        <div className="d-flex align-items-center gap-2 flex-wrap">
+                          <span className="fw-bold text-navy-900 small">
+                            {notif.title || 'Library Book Overdue Reminder'}
+                          </span>
+                          <span className={`badge ${
+                            notif.type === 'InApp' ? 'bg-teal-50 text-teal-700 border border-teal-200' : 'bg-warning-subtle text-dark border border-warning'
+                          } small px-2 py-0.5 rounded-pill fw-semibold`}>
+                            {notif.type === 'InApp' ? 'In-App Notice' : 'Cellular SMS Alert'}
+                          </span>
+                          {!notif.is_read ? (
+                            <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill small px-2 py-0.5">
+                              ● Unread
+                            </span>
+                          ) : (
+                            <span className="badge bg-light text-muted border rounded-pill small px-2 py-0.5">
+                              Read
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-muted" style={{ fontSize: '0.74rem' }}>
+                          {notif.created_at}
+                        </span>
+                      </div>
+
+                      {notif.book_title && (
+                        <div className="text-teal-700 small fw-semibold mb-1">
+                          📖 Book: {notif.book_title}
+                        </div>
+                      )}
+
+                      <p className="small text-navy-900 mb-2 leading-relaxed" style={{ lineHeight: '1.55' }}>
+                        {notif.message}
+                      </p>
+
+                      <div className="p-2.5 rounded bg-light border-start border-3 border-teal text-secondary small mb-2" style={{ fontSize: '0.76rem' }}>
+                        📌 <strong>Action Instructions:</strong> {notif.return_instructions || 'Please return this book to the KCT AI Smart Library circulation desk or renewal kiosk immediately to prevent additional daily fines.'}
+                      </div>
+
+                      <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 pt-2 border-top text-secondary" style={{ fontSize: '0.74rem' }}>
+                        <div className="d-flex align-items-center gap-3 flex-wrap">
+                          {notif.due_date && (
+                            <span>Due Date: <strong className="text-danger">{notif.due_date_formatted || notif.due_date}</strong></span>
+                          )}
+                          {notif.overdue_duration_text && notif.overdue_duration_text !== '0 minutes' && (
+                            <span className="text-danger">Overdue: <strong>{notif.overdue_duration_text}</strong></span>
+                          )}
+                          <div>
+                            SMS Status: <span className={`badge ${
+                              notif.status === 'Delivered' || notif.status === 'Sent' 
+                                ? 'bg-success-subtle text-success' 
+                                : notif.status === 'Failed' 
+                                ? 'bg-danger-subtle text-danger' 
+                                : 'bg-secondary-subtle text-secondary'
+                            } rounded-pill`}>{notif.status}</span>
+                          </div>
+                        </div>
+
+                        <div>
+                          {!notif.is_read ? (
+                            <button
+                              type="button"
+                              className="btn btn-xs btn-outline-teal rounded-pill px-2.5 py-0.5 small fw-semibold"
+                              onClick={() => handleMarkAsRead(notif.id)}
+                            >
+                              Mark as Read
+                            </button>
+                          ) : (
+                            <span className="text-muted small">✓ Acknowledged</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

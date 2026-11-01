@@ -1,5 +1,6 @@
 const searchService = require('../services/searchService');
 const aiRecommendationService = require('../services/aiRecommendationService');
+const coverService = require('../services/coverService');
 const db = require('../config/db');
 
 async function searchBooks(req, res) {
@@ -246,6 +247,22 @@ async function updateBook(req, res) {
   }
 }
 
+async function getBookCoverSvg(req, res) {
+  try {
+    const bookId = parseInt(req.params.id, 10);
+    const rows = await db.query('SELECT id, title, author, category, department FROM books WHERE id = ?', [bookId]);
+    const book = rows && rows.length > 0 ? rows[0] : { id: bookId, title: req.query.title || `Library Book #${bookId}` };
+    const svg = coverService.generateBookCoverSvg(book);
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=604800');
+    res.send(svg);
+  } catch (err) {
+    console.error('[Get Book Cover Error]:', err);
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.send('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450"><rect width="300" height="450" fill="#1e293b"/></svg>');
+  }
+}
+
 async function deleteBook(req, res) {
   try {
     const bookId = parseInt(req.params.id, 10);
@@ -260,6 +277,7 @@ async function deleteBook(req, res) {
 module.exports = {
   searchBooks,
   getBookById,
+  getBookCoverSvg,
   getFilters,
   getDepartments,
   getRecommendations,

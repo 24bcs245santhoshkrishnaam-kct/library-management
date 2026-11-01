@@ -33,7 +33,7 @@ const SUGGESTED_QUESTIONS = [
 const INITIAL_MESSAGE = {
   id: 'init-1',
   sender: 'bot',
-  text: "Hello! Welcome to the Smart Library Assistant. I can help you find books, check availability, understand borrowing procedures, and review your borrowing status.",
+  text: "Hello! Welcome to the KCT AI Smart Library Assistant. I can help you find books, check availability, understand borrowing procedures, and review your borrowing status.",
   timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 };
 
@@ -134,7 +134,7 @@ export default function Chatbot({ externalTriggerMessage, onClearExternalTrigger
           className="btn btn-primary rounded-circle shadow-lg d-flex align-items-center justify-content-center p-0 position-relative border-0 hover-scale"
           style={{ width: '60px', height: '60px', background: 'linear-gradient(135deg, #0d6efd, #0b5ed7)' }}
           onClick={() => setIsOpen(true)}
-          title="Open Smart Library AI Assistant"
+          title="Open KCT AI Smart Library Assistant"
         >
           <Sparkles size={26} className="text-white animate-pulse" />
           <span 
@@ -165,7 +165,7 @@ export default function Chatbot({ externalTriggerMessage, onClearExternalTrigger
                 <Sparkles size={18} />
               </div>
               <div>
-                <h6 className="mb-0 fw-bold fs-6">Library AI Assistant</h6>
+                <h6 className="mb-0 fw-bold fs-6">KCT AI Smart Library Assistant</h6>
                 <div className="d-flex align-items-center gap-1">
                   <span className="d-inline-block rounded-circle bg-success" style={{ width: '7px', height: '7px' }}></span>
                   <small className="opacity-75" style={{ fontSize: '0.72rem' }}>

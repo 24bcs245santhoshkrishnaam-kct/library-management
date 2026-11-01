@@ -19,12 +19,21 @@ if (process.env.DB_SOCKET) {
   config.socketPath = process.env.DB_SOCKET;
 }
 
+// Enable SSL if required by cloud MySQL provider (e.g. Aiven, TiDB, PlanetScale, Clever Cloud)
+if (process.env.DB_SSL === 'true') {
+  config.ssl = { rejectUnauthorized: false };
+}
+
 let pool;
 let isConnected = false;
 
 function getPool() {
   if (!pool) {
-    pool = mysql.createPool(config);
+    if (process.env.DATABASE_URL) {
+      pool = mysql.createPool(process.env.DATABASE_URL);
+    } else {
+      pool = mysql.createPool(config);
+    }
   }
   return pool;
 }
@@ -172,6 +181,12 @@ async function initTables() {
     try { await conn.query("ALTER TABLE transactions ADD COLUMN last_sms_sent_at DATETIME NULL"); } catch (e) {}
     try { await conn.query("ALTER TABLE transactions ADD COLUMN sms_status ENUM('None', 'Sent', 'Delivered', 'Failed', 'Pending') NOT NULL DEFAULT 'None'"); } catch (e) {}
     try { await conn.query("ALTER TABLE transactions ADD COLUMN sms_count INT NOT NULL DEFAULT 0"); } catch (e) {}
+    try { await conn.query("ALTER TABLE transactions ADD COLUMN duration VARCHAR(50) NOT NULL DEFAULT '6 days'"); } catch (e) {}
+    try { await conn.query("ALTER TABLE transactions ADD COLUMN auto_reminders_count INT NOT NULL DEFAULT 0"); } catch (e) {}
+    try { await conn.query("ALTER TABLE transactions ADD COLUMN last_auto_reminder_at DATETIME NULL"); } catch (e) {}
+    try { await conn.query("ALTER TABLE transactions MODIFY COLUMN issue_date DATETIME NOT NULL"); } catch (e) {}
+    try { await conn.query("ALTER TABLE transactions MODIFY COLUMN due_date DATETIME NOT NULL"); } catch (e) {}
+    try { await conn.query("ALTER TABLE transactions MODIFY COLUMN return_date DATETIME NULL"); } catch (e) {}
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS notifications (
@@ -183,11 +198,19 @@ async function initTables() {
         message TEXT NOT NULL,
         status ENUM('Sent', 'Delivered', 'Failed', 'Pending') NOT NULL DEFAULT 'Sent',
         provider VARCHAR(50) DEFAULT 'CollegeSMSGateway',
+        is_read BOOLEAN NOT NULL DEFAULT FALSE,
+        read_at TIMESTAMP NULL,
+        title VARCHAR(150) NULL DEFAULT 'Library Book Overdue Reminder',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        INDEX idx_user_notif (user_id)
+        INDEX idx_user_notif (user_id),
+        INDEX idx_read (user_id, is_read)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    try { await conn.query("ALTER TABLE notifications ADD COLUMN is_read BOOLEAN NOT NULL DEFAULT FALSE"); } catch (e) {}
+    try { await conn.query("ALTER TABLE notifications ADD COLUMN read_at TIMESTAMP NULL"); } catch (e) {}
+    try { await conn.query("ALTER TABLE notifications ADD COLUMN title VARCHAR(150) NULL DEFAULT 'Library Book Overdue Reminder'"); } catch (e) {}
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS policies (
@@ -198,6 +221,14 @@ async function initTables() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    try {
+      await conn.query(`
+        INSERT INTO policies (policy_key, policy_value, description)
+        VALUES ('borrowing_mode', 'testing', 'System borrowing duration mode: production (6 days) or testing (10 minutes)')
+        ON DUPLICATE KEY UPDATE description = VALUES(description)
+      `);
+    } catch (e) {}
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS audit_logs (

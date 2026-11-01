@@ -16,5 +16,7 @@ router.post('/send-bulk', smsController.sendBulkOverdueSMS);
 router.post('/bulk', smsController.sendBulkOverdueSMS);
 
 router.get('/logs', smsController.getSMSLogs);
+router.post('/run-auto-check', smsController.runAutoOverdueCheck);
+router.get('/scheduler-status', smsController.getSchedulerStatus);
 
 module.exports = router;

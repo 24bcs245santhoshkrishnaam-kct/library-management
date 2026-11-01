@@ -17,7 +17,7 @@ import {
   Library
 } from 'lucide-react';
 
-export default function LoginPage() {
+export default function LoginPage({ onWatchIntro }) {
   const { login, quickLoginAs, loading } = useAuth();
 
   const [selectedRole, setSelectedRole] = useState('student'); // 'student' | 'librarian' | 'admin'
@@ -67,31 +67,44 @@ export default function LoginPage() {
 
   return (
     <div className="login-split-container">
-      {/* Left Visual Column */}
-      <div className="login-split-visual">
-        <div className="d-flex align-items-center gap-3">
-          <div 
-            style={{
-              width: '48px',
-              height: '48px',
-              borderRadius: '12px',
-              background: 'rgba(255, 255, 255, 0.15)',
-              backdropFilter: 'blur(10px)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '1px solid rgba(255, 255, 255, 0.2)'
-            }}
-          >
-            <Library size={26} className="text-white" />
+        {/* Left Visual Column */}
+        <div className="login-split-visual">
+          <div className="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div className="d-flex align-items-center gap-3">
+              <div 
+                style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '12px',
+                  background: 'rgba(255, 255, 255, 0.15)',
+                  backdropFilter: 'blur(10px)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1px solid rgba(255, 255, 255, 0.2)'
+                }}
+              >
+                <Library size={26} className="text-white" />
+              </div>
+              <div>
+                <h4 className="fw-bold text-white mb-0" style={{ letterSpacing: '-0.02em' }}>
+                  KCT AI Smart Library
+                </h4>
+                <span className="text-white-50 small">Autonomous Academic Knowledge Center</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-light rounded-pill px-3 py-1.5 small d-inline-flex align-items-center gap-1.5 shadow-sm"
+              onClick={() => onWatchIntro && onWatchIntro()}
+              style={{ fontSize: '0.74rem', background: 'rgba(255, 255, 255, 0.12)', backdropFilter: 'blur(8px)' }}
+              title="Watch 3D Book Opening Intro Animation"
+            >
+              <Sparkles size={12} className="text-teal-400" />
+              <span>Watch 3D Intro</span>
+            </button>
           </div>
-          <div>
-            <h4 className="fw-bold text-white mb-0" style={{ letterSpacing: '-0.02em' }}>
-              Smart College Library
-            </h4>
-            <span className="text-white-50 small">Autonomous Academic Knowledge Center</span>
-          </div>
-        </div>
 
         <div className="my-auto py-5" style={{ maxWidth: '540px' }}>
           <div className="d-inline-flex align-items-center gap-2 px-3 py-1.5 rounded-pill mb-4" style={{ background: 'rgba(13, 148, 136, 0.35)', border: '1px solid rgba(20, 184, 166, 0.5)' }}>
@@ -102,13 +115,13 @@ export default function LoginPage() {
             Empowering Engineering Minds With Grounded Knowledge.
           </h1>
           <p className="text-white-50 fs-6 mb-5" style={{ lineHeight: '1.7' }}>
-            Access over 500+ curated engineering textbooks across Computer Science, AI & Machine Learning, ECE, EEE, and Mechanical disciplines with real-time borrowing and automated SMS overdue alerts.
+            Kumaraguru College of Technology (KCT) Autonomous Academic Knowledge Center. Access over 600+ curated textbooks across Computer Science, AI & Machine Learning, ECE, EEE, Mechanical, Shakespeare, and Tamil literature.
           </p>
 
           <div className="d-flex flex-column gap-3">
             <div className="d-flex align-items-center gap-3 text-white-50 small">
               <CheckCircle2 size={18} className="text-info flex-shrink-0" />
-              <span>Instant online borrowing for 20+ registered student demo accounts</span>
+              <span>Instant online borrowing for 25+ registered student demo accounts</span>
             </div>
             <div className="d-flex align-items-center gap-3 text-white-50 small">
               <CheckCircle2 size={18} className="text-info flex-shrink-0" />
@@ -122,7 +135,7 @@ export default function LoginPage() {
         </div>
 
         <div className="d-flex align-items-center justify-content-between text-white-50 small pt-4 border-top border-secondary border-opacity-25">
-          <span>Campus Central Library System</span>
+          <span>Kumaraguru College of Technology (KCT)</span>
           <span className="d-flex align-items-center gap-1.5 text-white">
             <Database size={13} className="text-success" />
             MySQL 9.4 Live
@@ -135,7 +148,7 @@ export default function LoginPage() {
         <div className="login-card">
           <div className="text-center mb-4">
             <h3 className="fw-bold text-navy-900 mb-1" style={{ letterSpacing: '-0.02em' }}>
-              Sign In to Library Portal
+              Sign In to KCT AI Smart Library
             </h3>
             <p className="text-muted small mb-0">Select your institutional role to continue</p>
           </div>
@@ -208,6 +221,55 @@ export default function LoginPage() {
                   </div>
                   <ArrowRight size={14} className="text-teal-600" />
                 </button>
+
+                {/* Extra Student Demo Accounts: Parama, Prawin, Rupak */}
+                <div className="d-flex flex-wrap gap-1.5 pt-1 border-top mt-1">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border py-1 px-2 text-dark rounded-pill"
+                    style={{ fontSize: '0.72rem' }}
+                    onClick={() => { setIdentifier('parama@kct.ac.in'); setPassword('12345'); }}
+                    title="Load Parama account"
+                  >
+                    👤 Parama (parama@kct.ac.in)
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border py-1 px-2 text-dark rounded-pill"
+                    style={{ fontSize: '0.72rem' }}
+                    onClick={() => { setIdentifier('prawin@kct.ac.in'); setPassword('12345'); }}
+                    title="Load Prawin account"
+                  >
+                    👤 Prawin (prawin@kct.ac.in)
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border py-1 px-2 text-dark rounded-pill"
+                    style={{ fontSize: '0.72rem' }}
+                    onClick={() => { setIdentifier('rupak@kct.ac.in'); setPassword('12345'); }}
+                    title="Load Rupak account"
+                  >
+                    👤 Rupak (rupak@kct.ac.in)
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border py-1 px-2 text-dark rounded-pill"
+                    style={{ fontSize: '0.72rem' }}
+                    onClick={() => { setIdentifier('prawin.kct@gmail.com'); setPassword('12345'); }}
+                    title="Load Prawin Gmail"
+                  >
+                    ✉️ prawin.kct@gmail.com
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border py-1 px-2 text-dark rounded-pill"
+                    style={{ fontSize: '0.72rem' }}
+                    onClick={() => { setIdentifier('rupak.kct@gmail.com'); setPassword('12345'); }}
+                    title="Load Rupak Gmail"
+                  >
+                    ✉️ rupak.kct@gmail.com
+                  </button>
+                </div>
               </div>
             )}
 
@@ -264,7 +326,7 @@ export default function LoginPage() {
                   type="text"
                   className="form-control border-0 bg-transparent px-2"
                   required
-                  placeholder={selectedRole === 'student' ? 'santhoshkrishna@gmail.com' : selectedRole === 'librarian' ? 'shankarlibarian46@gmail.vom' : 'arun444@gamil.com'}
+                  placeholder={selectedRole === 'student' ? 'santhoshkrishna@gmail.com, parama@kct.ac.in...' : selectedRole === 'librarian' ? 'shankarlibarian46@gmail.vom' : 'arun444@gamil.com'}
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                 />

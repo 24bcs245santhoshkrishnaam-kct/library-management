@@ -285,7 +285,7 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
             <Settings size={22} className="text-white" />
           </div>
           <div>
-            <h6 className="fw-bold mb-0 text-navy-900" style={{ fontSize: '0.94rem' }}>Smart Library</h6>
+            <h6 className="fw-bold mb-0 text-navy-900" style={{ fontSize: '0.94rem' }}>KCT AI Smart Library</h6>
             <span className="text-muted" style={{ fontSize: '0.72rem' }}>Chief Administrator</span>
           </div>
         </div>

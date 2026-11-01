@@ -33,7 +33,7 @@ export default function Navbar() {
             <div>
               <div className="d-flex align-items-center gap-2">
                 <span className="fw-bold fs-6 text-dark" style={{ letterSpacing: '-0.02em' }}>
-                  Smart Library
+                  KCT AI Smart Library
                 </span>
                 <span className="apple-badge apple-badge-blue py-0.5 px-2" style={{ fontSize: '0.66rem' }}>
                   {isStudent ? 'BORROWER DASHBOARD' : isLibrarian ? 'LIBRARIAN DESK' : 'ADMIN CONSOLE'}

@@ -20,9 +20,11 @@ import {
   Globe,
   ChevronDown,
   ChevronUp,
-  AlertCircle
+  AlertCircle,
+  Clock
 } from 'lucide-react';
-import { getRelatedBooks, getCareerGuidance } from '../services/api';
+import { getRelatedBooks, getCareerGuidance, getBorrowingMode } from '../services/api';
+import { generateFallbackCoverDataUri } from '../utils/coverGenerator';
 
 export default function BookDetailModal({ book, onClose, onBorrowBook, isBorrowing, onSelectBook, onAskBot }) {
   const [related, setRelated] = useState([]);
@@ -33,6 +35,32 @@ export default function BookDetailModal({ book, onClose, onBorrowBook, isBorrowi
   const [loadingCareer, setLoadingCareer] = useState(false);
   const [showCareerPanel, setShowCareerPanel] = useState(false);
   const [currencyRegion, setCurrencyRegion] = useState('india'); // 'india' | 'global'
+
+  // Feature 2 & 3: Borrowing Duration Mode (Production = 6d, Testing = 10m)
+  const [borrowingConfig, setBorrowingConfig] = useState({
+    mode: 'testing',
+    duration_label: '10 minutes',
+    duration_ms: 10 * 60 * 1000
+  });
+  const [borrowError, setBorrowError] = useState(null);
+
+  const fallbackCover = book ? generateFallbackCoverDataUri(book) : '';
+  const [coverSrc, setCoverSrc] = useState(book?.cover_image || fallbackCover);
+
+  useEffect(() => {
+    if (book) {
+      setCoverSrc(book.cover_image || generateFallbackCoverDataUri(book));
+      setBorrowError(null);
+    }
+  }, [book]);
+
+  useEffect(() => {
+    getBorrowingMode().then(cfg => {
+      if (cfg && cfg.duration_ms) {
+        setBorrowingConfig(cfg);
+      }
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (book && book.id) {
@@ -53,8 +81,6 @@ export default function BookDetailModal({ book, onClose, onBorrowBook, isBorrowi
   if (!book) return null;
 
   const isAvailable = book.available_copies > 0;
-  const fallbackCover = 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=600&q=80';
-  const coverSrc = book.cover_image || fallbackCover;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -126,32 +152,72 @@ export default function BookDetailModal({ book, onClose, onBorrowBook, isBorrowi
                 </div>
               </div>
 
-              {/* Borrow Online Action */}
+              {/* Borrow Online Action with Enforced Library Duration (Feature 2 & 3) */}
               {onBorrowBook && (
-                <button
-                  type="button"
-                  className={`btn w-100 mt-3 py-2.5 rounded-3 fw-semibold d-flex align-items-center justify-content-center gap-2 ${
-                    isAvailable ? 'btn-teal' : 'btn-light border text-muted'
-                  }`}
-                  disabled={!isAvailable || isBorrowing}
-                  onClick={() => {
-                    if (isAvailable) onBorrowBook(book);
-                  }}
-                >
-                  {isBorrowing ? (
-                    <>
-                      <span className="spinner-border spinner-border-sm" role="status"></span>
-                      <span>Borrowing...</span>
-                    </>
-                  ) : isAvailable ? (
-                    <>
-                      <BookOpen size={16} />
-                      <span>Borrow This Book Online</span>
-                    </>
-                  ) : (
-                    <span>Currently Checked Out</span>
+                <div className="mt-3 p-3 rounded-3 bg-light border text-start">
+                  <div className="d-flex align-items-center justify-content-between mb-2">
+                    <label className="form-label small fw-bold text-navy-900 d-flex align-items-center gap-1.5 mb-0">
+                      <Clock size={14} className="text-teal-600" />
+                      <span>Borrowing Period:</span>
+                    </label>
+                    <span className={`badge ${borrowingConfig.mode === 'testing' ? 'bg-warning-subtle text-dark border border-warning' : 'badge-active-teal'} px-2 py-0.5 rounded-pill small fw-bold`}>
+                      {borrowingConfig.mode === 'testing' ? 'Testing Mode (10m)' : 'Academic Loan (6d)'}
+                    </span>
+                  </div>
+
+                  {/* Live Calculated Due Time */}
+                  <div className="p-2.5 rounded bg-white border small text-secondary mb-2.5">
+                    <div className="d-flex justify-content-between mb-1" style={{ fontSize: '0.74rem' }}>
+                      <span className="text-muted">Assigned Duration:</span>
+                      <strong className="text-navy-900">{borrowingConfig.duration_label}</strong>
+                    </div>
+                    <div className="d-flex justify-content-between" style={{ fontSize: '0.74rem' }}>
+                      <span className="text-muted">Due Deadline:</span>
+                      <strong className="text-teal-700">
+                        {new Date(Date.now() + borrowingConfig.duration_ms).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className={`btn w-100 py-2 rounded-3 fw-semibold d-flex align-items-center justify-content-center gap-2 ${
+                      isAvailable ? 'btn-teal' : 'btn-light border text-muted'
+                    }`}
+                    disabled={!isAvailable || isBorrowing}
+                    onClick={async () => {
+                      if (!isAvailable || isBorrowing) return;
+                      setBorrowError(null);
+                      if (onBorrowBook) {
+                        const res = await onBorrowBook(book);
+                        if (res && !res.success && res.message) {
+                          setBorrowError(res.message);
+                        }
+                      }
+                    }}
+                  >
+                    {isBorrowing ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm" role="status"></span>
+                        <span>Confirming Loan...</span>
+                      </>
+                    ) : isAvailable ? (
+                      <>
+                        <BookOpen size={16} />
+                        <span>Confirm Borrow ({borrowingConfig.duration_label})</span>
+                      </>
+                    ) : (
+                      <span>Currently Checked Out</span>
+                    )}
+                  </button>
+
+                  {borrowError && (
+                    <div className="alert alert-danger py-2 px-3 small rounded-3 mt-2 d-flex align-items-center gap-2 mb-0 shadow-xs">
+                      <AlertCircle size={15} className="flex-shrink-0 text-danger" />
+                      <span style={{ fontSize: '0.78rem' }}>{borrowError}</span>
+                    </div>
                   )}
-                </button>
+                </div>
               )}
 
               {onAskBot && (

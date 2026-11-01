@@ -7,6 +7,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('smart_library_token') || null);
   const [loading, setLoading] = useState(true);
+  const [authTransition, setAuthTransition] = useState(null); // null | { mode: 'login-transition', role } | { mode: 'logout-transition' }
 
   // Check if saved session exists in localStorage
   useEffect(() => {
@@ -38,6 +39,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('smart_library_token', res.token);
       setToken(res.token);
       setUser(res.user);
+      setAuthTransition({ mode: 'login-transition', role: res.user.role });
       return { success: true, user: res.user, message: res.message };
     } catch (err) {
       return { 
@@ -51,15 +53,14 @@ export const AuthProvider = ({ children }) => {
 
   const quickLoginAs = async (roleName, specificIdentifier) => {
     let identifier = specificIdentifier;
-    let pwd = '1234';
+    let pwd = '12345';
 
     if (roleName === 'student') {
-      if (identifier === 'parthipan' || identifier === 'Parthi43@gmail.com') {
-        identifier = 'Parthi43@gmail.com';
-        pwd = '12345';
-      } else {
+      if (!identifier || identifier === 'santhoshkrishna@gmail.com') {
         identifier = 'santhoshkrishna@gmail.com';
         pwd = '1234';
+      } else {
+        pwd = '12345';
       }
     } else if (roleName === 'librarian') {
       identifier = 'shankarlibarian46@gmail.vom';
@@ -73,9 +74,11 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
+    // Invalidate session immediately before transition runs
     localStorage.removeItem('smart_library_token');
     setToken(null);
     setUser(null);
+    setAuthTransition({ mode: 'logout-transition' });
   };
 
   const updateUserData = (updatedUser) => {
@@ -97,6 +100,8 @@ export const AuthProvider = ({ children }) => {
       isStudent,
       isLibrarian,
       isAdmin,
+      authTransition,
+      setAuthTransition,
       login, 
       quickLoginAs,
       updateUserData,

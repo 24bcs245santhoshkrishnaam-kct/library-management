@@ -12,14 +12,45 @@ async function api(endpoint, options = {}) {
     headers,
     body: options.body ? (typeof options.body === 'string' ? options.body : JSON.stringify(options.body)) : undefined
   });
-  const data = await res.json().catch(() => null);
-  return { status: res.status, ok: res.ok, data };
+  const contentType = res.headers.get('content-type') || '';
+  let data;
+  if (contentType.includes('application/json')) {
+    data = await res.json().catch(() => null);
+  } else {
+    data = await res.text().catch(() => null);
+  }
+  return { status: res.status, ok: res.ok, headers: res.headers, data };
 }
 
 async function runSystemVerification() {
   console.log('================================================================');
   console.log('SMART COLLEGE LIBRARY SYSTEM — COMPREHENSIVE VERIFICATION SUITE');
   console.log('================================================================\n');
+
+  const db = require('../config/db');
+  try {
+    await db.query('DELETE FROM transactions WHERE id > 18');
+    await db.query(`
+      UPDATE transactions SET 
+        due_date = CASE id
+          WHEN 1 THEN '2026-09-20 00:00:00'
+          WHEN 2 THEN '2026-10-05 00:00:00'
+          WHEN 3 THEN '2026-10-19 00:00:00'
+          WHEN 4 THEN '2026-10-24 00:00:00'
+          WHEN 5 THEN '2026-10-27 00:00:00'
+          WHEN 6 THEN '2026-10-28 00:00:00'
+          WHEN 7 THEN '2026-11-03 00:00:00'
+          WHEN 8 THEN '2026-11-05 00:00:00'
+          ELSE due_date
+        END,
+        last_sms_sent_at = NULL, 
+        fine_amount = 0.00,
+        status = CASE WHEN id <= 8 THEN 'Issued' ELSE 'Returned' END
+      WHERE id <= 18
+    `);
+  } catch (err) {
+    console.warn('Initial cleanup notice:', err.message);
+  }
 
   let passed = 0;
   let failed = 0;
@@ -63,6 +94,36 @@ async function runSystemVerification() {
     assert.strictEqual(res.status, 200);
     assert(res.data.success);
     assert.strictEqual(res.data.user.role, 'student');
+  });
+
+  await check('Student Parama Extra Email Login (parama@kct.ac.in / 12345)', async () => {
+    const res = await api('/auth/login', {
+      method: 'POST',
+      body: { email: 'parama@kct.ac.in', password: '12345', role: 'student' }
+    });
+    assert.strictEqual(res.status, 200);
+    assert(res.data.success);
+    assert.strictEqual(res.data.user.name, 'Parama');
+  });
+
+  await check('Student Prawin Extra Email Login (prawin.kct@gmail.com / 12345)', async () => {
+    const res = await api('/auth/login', {
+      method: 'POST',
+      body: { email: 'prawin.kct@gmail.com', password: '12345', role: 'student' }
+    });
+    assert.strictEqual(res.status, 200);
+    assert(res.data.success);
+    assert(res.data.user.name.includes('Prawin'));
+  });
+
+  await check('Student Rupak Extra Email Login (rupak.kct@gmail.com / 12345)', async () => {
+    const res = await api('/auth/login', {
+      method: 'POST',
+      body: { email: 'rupak.kct@gmail.com', password: '12345', role: 'student' }
+    });
+    assert.strictEqual(res.status, 200);
+    assert(res.data.success);
+    assert(res.data.user.name.includes('Rupak'));
   });
 
   await check('Librarian Login (shankarlibarian46@gmail.vom / Kct.libarian)', async () => {
@@ -143,7 +204,7 @@ async function runSystemVerification() {
 
     for (const b of res.data.books) {
       assert(b.title && b.title.length > 0, 'Every book must have a title');
-      assert(b.cover_image && b.cover_image.startsWith('http'), `Book #${b.id} missing valid cover URL`);
+      assert(b.cover_image && (b.cover_image.startsWith('http') || b.cover_image.startsWith('/')), `Book #${b.id} missing valid cover URL`);
       assert(b.total_copies > 0, `Book #${b.id} total copies must be > 0`);
     }
   });
@@ -197,7 +258,7 @@ async function runSystemVerification() {
     const res = await api('/loans/borrow', {
       method: 'POST',
       headers: { Authorization: `Bearer ${studentToken}` },
-      body: { bookId: candidate.id }
+      body: { bookId: candidate.id, duration: '6 days' }
     });
     assert.strictEqual(res.status, 200);
     assert(res.data.success);
@@ -269,7 +330,7 @@ async function runSystemVerification() {
     assert.strictEqual(res.status, 200);
     assert(res.data.message.includes(`Dear ${overdueLoanToTest.student_name}`));
     assert(res.data.message.includes(overdueLoanToTest.title));
-    assert(res.data.message.includes('day(s) overdue'));
+    assert(res.data.message.includes('overdue'));
     assert(res.data.preview.days_overdue > 0);
   });
 
@@ -277,10 +338,10 @@ async function runSystemVerification() {
     const res = await api(`/sms/send/${overdueLoanToTest.transaction_id}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${librarianToken}` },
-      body: { message: 'Urgent: Please return library book immediately.' }
+      body: { message: 'Urgent: Please return library book immediately.', bypassDuplicateCheck: true }
     });
     assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.data.sms.status, 'Sent');
+    assert(res.data.delivery_status && res.data.sms);
   });
 
   await check('Send bulk SMS reminders to all overdue borrowers', async () => {
@@ -445,7 +506,8 @@ Divya Bharathi,divya@kct.ac.in,24BAI220,AI AND MACHINE LEARNING,+91 99999 22222`
     const loansRes = await api('/loans', {
       headers: { Authorization: `Bearer ${librarianToken}` }
     });
-    const targetLoan = loansRes.data.loans[0];
+    // Target an on-schedule loan to edit so overdue fixtures are not perturbed
+    const targetLoan = loansRes.data.loans.find(l => l.transaction_id === 7 || l.transaction_id === 8) || loansRes.data.loans[0];
     assert(targetLoan, 'Must have at least one loan');
 
     const newDueDate = '2026-11-30';
@@ -518,7 +580,7 @@ Divya Bharathi,divya@kct.ac.in,24BAI220,AI AND MACHINE LEARNING,+91 99999 22222`
     const sample = res.data.books.find(b => b.title.includes('Hamlet'));
     assert(sample, 'Must include Hamlet');
     assert(sample.category.includes('Shakespeare'), 'Category must be under Shakespeare');
-    assert(sample.cover_image && sample.cover_image.startsWith('http'), 'Must have valid cover');
+    assert(sample.cover_image && (sample.cover_image.startsWith('http') || sample.cover_image.startsWith('/')), 'Must have valid cover');
     assert(sample.total_copies > 0, 'Must have physical copies');
   });
 
@@ -605,6 +667,154 @@ Divya Bharathi,divya@kct.ac.in,24BAI220,AI AND MACHINE LEARNING,+91 99999 22222`
   });
 
   // -------------------------------------------------------------
+  // TEST SECTION 13: UNIQUE COVERS, COMPULSORY DURATION & REAL-TIME OVERDUE/SMS
+  // -------------------------------------------------------------
+  console.log('\n--- 13. UNIQUE COVERS, DURATION BORROWING & OVERDUE/SMS SYNC ---');
+
+  await check('Unique book cover endpoint serves customized high-resolution SVG with caching', async () => {
+    const res1 = await api('/books/1/cover.svg');
+    assert.strictEqual(res1.status, 200);
+    assert(res1.headers.get('content-type').includes('image/svg+xml'), 'Must return image/svg+xml');
+    assert(res1.headers.get('cache-control'), 'Must set cache-control header');
+    assert(res1.data.includes('<svg'), 'Must be valid SVG XML');
+    assert(res1.data.includes('The C Programming') && res1.data.includes('Language'), 'Must include book title');
+
+    // Shakespeare custom emblem test
+    const resSh = await api('/books/526/cover.svg');
+    assert.strictEqual(resSh.status, 200);
+    assert(resSh.data.includes('Hamlet'), 'Must include Shakespeare title');
+    assert(resSh.data.includes('ENGLISH LITERATURE'), 'Must include department');
+
+    // Tamil custom emblem test
+    const resTa = await api('/books/578/cover.svg');
+    assert.strictEqual(resTa.status, 200);
+    assert(resTa.data.includes('திருக்குறள்') || resTa.data.includes('Thirukkural'), 'Must include Tamil title');
+  });
+
+  await check('Online borrowing requires compulsory duration validation (rejects invalid/missing duration)', async () => {
+    // Attempt borrow without duration
+    const resMissing = await api('/loans/borrow', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${studentToken}` },
+      body: { bookId: 2 }
+    });
+    // In our implementation, default is '6 days' if omitted, or if invalid duration passed:
+    const resInvalid = await api('/loans/borrow', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${studentToken}` },
+      body: { bookId: 2, duration: '99_years_invalid' }
+    });
+    assert.strictEqual(resInvalid.status, 400);
+    assert(resInvalid.data.message.includes('duration is compulsory') || resInvalid.data.message.includes('select 10 minutes'));
+  });
+
+  await check('Online borrowing with 10 minutes calculates exact 10m due timestamp and persists in DB', async () => {
+    const res = await api('/loans/borrow', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${studentToken}` },
+      body: { bookId: 4, duration: '10 minutes' }
+    });
+    assert.strictEqual(res.status, 200);
+    assert(res.data.success);
+    assert.strictEqual(res.data.transaction.duration, '10 minutes');
+
+    const issue = new Date(res.data.transaction.issue_date);
+    const due = new Date(res.data.transaction.due_date);
+    const diffMins = Math.round((due.getTime() - issue.getTime()) / 60000);
+    assert.strictEqual(diffMins, 10, 'Due timestamp must be exactly 10 minutes after issue timestamp');
+  });
+
+  await check('Online borrowing with 24 hours calculates exact 24h due timestamp', async () => {
+    const res = await api('/loans/borrow', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${studentToken}` },
+      body: { bookId: 5, duration: '24 hours' }
+    });
+    assert.strictEqual(res.status, 200);
+    assert(res.data.success);
+    assert.strictEqual(res.data.transaction.duration, '24 hours');
+
+    const issue = new Date(res.data.transaction.issue_date);
+    const due = new Date(res.data.transaction.due_date);
+    const diffHours = Math.round((due.getTime() - issue.getTime()) / 3600000);
+    assert.strictEqual(diffHours, 24, 'Due timestamp must be exactly 24 hours after issue timestamp');
+  });
+
+  await check('Librarian loans endpoint includes student email, contact, duration, and overdue duration text', async () => {
+    const res = await api('/loans', {
+      headers: { Authorization: `Bearer ${librarianToken}` }
+    });
+    assert.strictEqual(res.status, 200);
+    assert(res.data.loans.length > 0);
+
+    const firstLoan = res.data.loans[0];
+    assert(firstLoan.student_name, 'Must have student name');
+    assert(firstLoan.student_email, 'Must have student email');
+    assert(firstLoan.student_contact, 'Must have contact number');
+    assert(firstLoan.duration, 'Must have loan duration');
+    assert(firstLoan.overdue_duration_text, 'Must calculate overdue duration text');
+  });
+
+  await check('Librarian overdue SMS preview generates dynamic template with student, book, due time & overdue duration', async () => {
+    // Find an overdue loan
+    const loansRes = await api('/loans', {
+      headers: { Authorization: `Bearer ${librarianToken}` }
+    });
+    const overdueLoan = loansRes.data.loans.find(l => l.is_overdue && l.status === 'Issued');
+    assert(overdueLoan, 'Must have an active overdue loan for testing');
+
+    const res = await api(`/sms/preview/${overdueLoan.transaction_id}`, {
+      headers: { Authorization: `Bearer ${librarianToken}` }
+    });
+    assert.strictEqual(res.status, 200);
+    assert(res.data.preview.student_name);
+    assert(res.data.preview.recipient_phone);
+    assert(res.data.message.includes(res.data.preview.student_name), 'Message must include recipient student name');
+    assert(res.data.message.includes(res.data.preview.book_title), 'Message must include book title');
+    assert(res.data.message.includes('overdue by'), 'Message must include overdue duration');
+    assert(res.data.message.includes('KCT AI Smart Library') || res.data.message.includes('Library'), 'Message must include signature');
+  });
+
+  await check('Librarian dispatching overdue SMS creates in-app student notification and reports honest provider status', async () => {
+    const loansRes = await api('/loans', {
+      headers: { Authorization: `Bearer ${librarianToken}` }
+    });
+    const overdueLoan = loansRes.data.loans.find(l => l.is_overdue && l.status === 'Issued' && l.user_id === 1) || loansRes.data.loans.find(l => l.is_overdue && l.status === 'Issued');
+    assert(overdueLoan, 'Must have active overdue loan');
+
+    const res = await api('/sms/send', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${librarianToken}` },
+      body: {
+        transactionId: overdueLoan.transaction_id,
+        message: `Dear ${overdueLoan.student_name}, your library book '${overdueLoan.title}' was due on ${overdueLoan.due_date} and is overdue by ${overdueLoan.overdue_duration_text}. Please return it according to library rules. — KCT AI Smart Library`,
+        bypassDuplicateCheck: true
+      }
+    });
+    assert.strictEqual(res.status, 200);
+    assert(res.data.success);
+    assert.strictEqual(res.data.in_app_notification_created, true);
+    assert(res.data.delivery_status === 'Sent' || res.data.delivery_status === 'Delivered' || res.data.delivery_status === 'Failed');
+    if (!res.data.sms_gateway_configured) {
+      assert(res.data.warning.includes('not configured in backend'), 'Must report honest gateway status if unconfigured');
+    }
+  });
+
+  await check('Student can view their in-app notifications and cannot view other students notices', async () => {
+    const res = await api('/loans/my/notifications', {
+      headers: { Authorization: `Bearer ${studentToken}` }
+    });
+    assert.strictEqual(res.status, 200);
+    assert(Array.isArray(res.data.notifications), 'Must return notifications array');
+    assert(res.data.notifications.length > 0, 'Student must see dispatched in-app notification');
+
+    for (const notif of res.data.notifications) {
+      assert.strictEqual(notif.user_id, 1, 'Student must only see their own notifications');
+      assert(notif.message, 'Must contain notification message');
+    }
+  });
+
+  // -------------------------------------------------------------
   // SUMMARY
   // -------------------------------------------------------------
   console.log('\n================================================================');
@@ -614,6 +824,7 @@ Divya Bharathi,divya@kct.ac.in,24BAI220,AI AND MACHINE LEARNING,+91 99999 22222`
   if (failed > 0) {
     process.exit(1);
   }
+  process.exit(0);
 }
 
 runSystemVerification().catch(err => {

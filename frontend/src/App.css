@@ -602,3 +602,627 @@ h1, h2, h3, h4, h5, h6 {
   color: #ffffff;
   font-weight: 600;
 }
+
+/* ==========================================================================
+   Feature 6: Cinematic 3D Book-Opening Animation & Presentation
+   ========================================================================== */
+.cinematic-intro-wrapper {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: radial-gradient(circle at 50% 40%, #0f172a 0%, #090d16 65%, #020617 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  perspective: 1600px;
+  transition: opacity 0.8s ease-out, filter 0.8s ease-out;
+}
+
+.cinematic-intro-wrapper.stage-push {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cinematic-particles-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.cinematic-backlight {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(13, 148, 136, 0.15) 0%, rgba(251, 191, 36, 0.08) 45%, transparent 70%);
+  filter: blur(50px);
+  pointer-events: none;
+  z-index: 2;
+  transition: all 1.8s ease-out;
+}
+
+.cinematic-backlight.bloom-bright {
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.45) 0%, rgba(13, 148, 136, 0.25) 50%, transparent 80%);
+  transform: scale(1.6);
+  filter: blur(40px);
+}
+
+.cinematic-skip-btn {
+  position: absolute;
+  top: 28px;
+  right: 32px;
+  z-index: 20;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(12px);
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  letter-spacing: 0.02em;
+}
+
+.cinematic-skip-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.45);
+  transform: translateY(-1px);
+}
+
+.cinematic-brand-header {
+  position: absolute;
+  top: 36px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  z-index: 10;
+  pointer-events: none;
+  animation: fadeInDown 0.8s ease forwards;
+}
+
+.cinematic-caption-box {
+  position: absolute;
+  bottom: 40px;
+  z-index: 10;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  padding: 8px 20px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+}
+
+/* 3D Viewport */
+.cinematic-3d-viewport {
+  width: 320px;
+  height: 460px;
+  position: relative;
+  perspective: 1600px;
+  transform-style: preserve-3d;
+  z-index: 5;
+}
+
+.cinematic-book-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+  transform: rotateX(16deg) rotateY(-24deg) translateY(-14px);
+  transition: transform 1.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.cinematic-book-container.stage-tilt {
+  transform: rotateX(6deg) rotateY(-8deg) translateY(0);
+}
+
+.cinematic-book-container.stage-open {
+  transform: rotateX(2deg) rotateY(16deg) scale(1.04);
+}
+
+.cinematic-book-container.stage-zoom {
+  transform: scale(2.4) translateZ(380px);
+  filter: blur(6px);
+  opacity: 0;
+  transition: transform 1.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.9s ease-in, filter 0.9s ease-in;
+}
+
+.cinematic-book-container.stage-closing-pages {
+  transform: rotateX(6deg) rotateY(-4deg) scale(1.02);
+  transition: transform 0.6s ease;
+}
+
+.cinematic-book-container.stage-closed-flat {
+  transform: rotateX(12deg) rotateY(-18deg) translateY(0);
+  transition: transform 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.book-cover-front.cover-hinge-shut {
+  transform: rotateY(0deg) translateZ(22px);
+  transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Emerging KCT AI SMART LIBRARY Typographic Title (Feature 3) */
+.emerging-title-container {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) translateZ(100px);
+  z-index: 50;
+  text-align: center;
+  pointer-events: none;
+  animation: emergeTitle 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  width: 90%;
+}
+
+@keyframes emergeTitle {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -40%) translateZ(20px) scale(0.85);
+    filter: blur(8px);
+  }
+  60% {
+    opacity: 1;
+    transform: translate(-50%, -50%) translateZ(90px) scale(1.04);
+    filter: blur(0px);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) translateZ(100px) scale(1);
+    filter: blur(0px);
+  }
+}
+
+.emerging-title-eyebrow {
+  color: #38bdf8;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  text-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+}
+
+.emerging-title-text {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.85rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  background: linear-gradient(135deg, #ffffff 0%, #fef08a 45%, #fbbf24 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 18px rgba(251, 191, 36, 0.75));
+  margin-bottom: 4px;
+}
+
+.emerging-title-sub {
+  color: #f1f5f9;
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  opacity: 0.95;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+
+/* Soft 3D Floor Shadow */
+.cinematic-book-shadow {
+  position: absolute;
+  width: 380px;
+  height: 70px;
+  bottom: -45px;
+  left: -30px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0) 70%);
+  filter: blur(14px);
+  transform: rotateX(85deg) translateZ(-50px);
+  pointer-events: none;
+}
+
+/* Spine */
+.book-spine {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 44px;
+  height: 100%;
+  background: linear-gradient(90deg, #090d16 0%, #1e293b 45%, #0f172a 100%);
+  border-radius: 4px 0 0 4px;
+  transform-origin: left center;
+  transform: rotateY(-90deg) translateZ(22px);
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 0;
+  border-right: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.spine-rib {
+  width: 80%;
+  height: 4px;
+  background: linear-gradient(90deg, #78350f, #f59e0b, #78350f);
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.spine-title {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  color: #fde68a;
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  font-weight: 700;
+  opacity: 0.9;
+}
+
+/* Back Cover */
+.book-cover-back {
+  position: absolute;
+  inset: 0;
+  background: #090d16;
+  border-radius: 4px 12px 12px 4px;
+  transform: translateZ(-22px);
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.7);
+  border: 1px solid #1e293b;
+}
+
+/* Pages Block Thickness */
+.book-page-block-right {
+  position: absolute;
+  top: 8px;
+  right: -2px;
+  width: 40px;
+  height: 444px;
+  background: repeating-linear-gradient(
+    90deg,
+    #f8fafc 0px,
+    #f8fafc 1.5px,
+    #cbd5e1 2px,
+    #e2e8f0 3px
+  );
+  transform-origin: right center;
+  transform: rotateY(90deg) translateZ(20px);
+  box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.35);
+  border-radius: 1px;
+}
+
+.book-page-block-top {
+  position: absolute;
+  top: -2px;
+  left: 4px;
+  width: 312px;
+  height: 40px;
+  background: repeating-linear-gradient(
+    0deg,
+    #f8fafc 0px,
+    #e2e8f0 2px,
+    #cbd5e1 3px
+  );
+  transform-origin: top center;
+  transform: rotateX(90deg) translateZ(20px);
+  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.3);
+}
+
+.book-page-block-bottom {
+  position: absolute;
+  bottom: -2px;
+  left: 4px;
+  width: 312px;
+  height: 40px;
+  background: repeating-linear-gradient(
+    0deg,
+    #f8fafc 0px,
+    #e2e8f0 2px,
+    #cbd5e1 3px
+  );
+  transform-origin: bottom center;
+  transform: rotateX(-90deg) translateZ(20px);
+  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.4);
+}
+
+/* Inside Right Base Page */
+.book-inside-right {
+  position: absolute;
+  inset: 6px 6px 6px 12px;
+  background: #fdfbf7;
+  border-radius: 0 8px 8px 0;
+  transform: translateZ(2px);
+  box-shadow: inset 8px 0 16px rgba(0, 0, 0, 0.12);
+  padding: 32px 24px;
+  overflow: hidden;
+}
+
+.inside-page-content {
+  position: relative;
+  z-index: 2;
+}
+
+.page-header-line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  letter-spacing: 0.15em;
+  color: #94a3b8;
+  font-weight: 700;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 8px;
+  margin-bottom: 20px;
+}
+
+.page-inner-title {
+  color: #0f172a;
+  font-weight: 800;
+  font-size: 1.15rem;
+  margin-bottom: 12px;
+  letter-spacing: -0.01em;
+}
+
+.page-inner-text {
+  color: #475569;
+  font-size: 0.78rem;
+  line-height: 1.65;
+  margin-bottom: 24px;
+}
+
+.page-ornament-divider {
+  text-align: center;
+  color: #d97706;
+  font-size: 0.85rem;
+  letter-spacing: 0.3em;
+  margin-bottom: 24px;
+}
+
+.page-signature-stamp {
+  border: 1.5px dashed #0d9488;
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(13, 148, 136, 0.04);
+}
+
+.stamp-badge {
+  color: #0f766e;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.stamp-date {
+  color: #64748b;
+  font-size: 0.65rem;
+  margin-top: 2px;
+}
+
+.inside-golden-glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 40% 50%, rgba(251, 191, 36, 0.75) 0%, rgba(217, 119, 6, 0.3) 50%, transparent 80%);
+  opacity: 0;
+  pointer-events: none;
+  mix-blend-mode: color-dodge;
+  transition: opacity 1.2s ease-in;
+  z-index: 3;
+}
+
+.inside-golden-glow.glow-active {
+  opacity: 1;
+  animation: pulseGoldGlow 2.5s infinite alternate ease-in-out;
+}
+
+@keyframes pulseGoldGlow {
+  0% { transform: scale(0.95); opacity: 0.75; }
+  100% { transform: scale(1.15); opacity: 1; }
+}
+
+/* Flipping 3D Pages */
+.flipping-page {
+  position: absolute;
+  inset: 6px 6px 6px 12px;
+  background: #fbf9f4;
+  border-radius: 0 8px 8px 0;
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  box-shadow: inset 6px 0 12px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.page-layer-1 { transform: translateZ(10px); }
+.page-layer-2 { transform: translateZ(8px); }
+.page-layer-3 { transform: translateZ(6px); }
+
+.page-face {
+  position: absolute;
+  inset: 0;
+  padding: 24px 20px;
+  backface-visibility: hidden;
+}
+
+.page-face-back {
+  transform: rotateY(180deg);
+  background: #f4efe6;
+  border-radius: 8px 0 0 8px;
+}
+
+.page-title-front {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #64748b;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 4px;
+}
+
+.page-mini-diagram {
+  width: 100%;
+  height: 80px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, rgba(13, 148, 136, 0.05) 0%, rgba(30, 41, 59, 0.05) 100%);
+}
+
+.line-bar {
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  margin-bottom: 8px;
+}
+
+.flipping-page.flip-1 {
+  transform: rotateY(-172deg) translateZ(10px);
+  transition: transform 1.3s cubic-bezier(0.25, 1, 0.5, 1) 0.1s;
+}
+
+.flipping-page.flip-2 {
+  transform: rotateY(-165deg) translateZ(8px);
+  transition: transform 1.4s cubic-bezier(0.25, 1, 0.5, 1) 0.35s;
+}
+
+.flipping-page.flip-3 {
+  transform: rotateY(-158deg) translateZ(6px);
+  transition: transform 1.5s cubic-bezier(0.25, 1, 0.5, 1) 0.6s;
+}
+
+/* Front Hardcover */
+.book-cover-front {
+  position: absolute;
+  inset: 0;
+  border-radius: 4px 12px 12px 4px;
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  transform: translateZ(22px);
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.65), inset 0 0 20px rgba(0, 0, 0, 0.5);
+  transition: transform 1.6s cubic-bezier(0.35, 0, 0.25, 1);
+  z-index: 20;
+}
+
+.book-cover-front.cover-hinge-open {
+  transform: rotateY(-180deg) translateZ(22px);
+}
+
+.cover-leather-texture {
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at 30% 30%, #1e293b 0%, #0f172a 60%, #020617 100%);
+  border-radius: 4px 12px 12px 4px;
+  padding: 16px;
+  position: relative;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.cover-gold-border {
+  width: 100%;
+  height: 100%;
+  border: 2px solid rgba(251, 191, 36, 0.6);
+  border-radius: 2px 8px 8px 2px;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  box-shadow: inset 0 0 12px rgba(245, 158, 11, 0.2);
+}
+
+/* Corner Filigrees */
+.corner-filigree {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: rgba(251, 191, 36, 0.85);
+  border-style: solid;
+}
+.corner-tl { top: 6px; left: 6px; border-width: 2px 0 0 2px; }
+.corner-tr { top: 6px; right: 6px; border-width: 2px 2px 0 0; }
+.corner-bl { bottom: 6px; left: 6px; border-width: 0 0 2px 2px; }
+.corner-br { bottom: 6px; right: 6px; border-width: 0 2px 2px 0; }
+
+.cover-crest {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.crest-outer-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid rgba(251, 191, 36, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(251, 191, 36, 0.1);
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.3);
+}
+
+.crest-icon {
+  color: #fbbf24;
+}
+
+.crest-stars {
+  color: #f59e0b;
+  font-size: 0.75rem;
+  letter-spacing: 0.25em;
+  margin-top: 6px;
+}
+
+.cover-typography {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.cover-eyebrow {
+  color: #38bdf8;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  margin-bottom: 8px;
+}
+
+.cover-main-title {
+  color: #fef08a;
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8), 0 0 15px rgba(250, 204, 21, 0.4);
+}
+
+.cover-sub-title {
+  color: #94a3b8;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+
+.cover-bottom-seal {
+  color: rgba(251, 191, 36, 0.7);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  border-top: 1px solid rgba(251, 191, 36, 0.3);
+  padding-top: 8px;
+  width: 70%;
+  text-align: center;
+}
+

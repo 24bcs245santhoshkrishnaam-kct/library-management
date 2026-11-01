@@ -5,11 +5,32 @@ import StudentDashboard from './components/StudentDashboard';
 import LibrarianDashboard from './components/LibrarianDashboard';
 import AdminDashboard from './components/AdminDashboard';
 import Chatbot from './components/Chatbot';
+import CinematicBookIntro from './components/CinematicBookIntro';
 import './App.css';
 
 function MainApp() {
-  const { isAuthenticated, isStudent, isLibrarian, isAdmin, user, loading } = useAuth();
+  const { 
+    isAuthenticated, 
+    isStudent, 
+    isLibrarian, 
+    isAdmin, 
+    user, 
+    loading, 
+    authTransition, 
+    setAuthTransition 
+  } = useAuth();
   const [chatbotTrigger, setChatbotTrigger] = useState(null);
+  const [manualIntro, setManualIntro] = useState(false);
+
+  // FEATURE 9: Initial website opening intro (shown once per session on fresh unauthenticated visit)
+  const [initialIntroActive, setInitialIntroActive] = useState(() => {
+    try {
+      const watched = sessionStorage.getItem('smart_library_intro_watched');
+      return !watched;
+    } catch (e) {
+      return false;
+    }
+  });
 
   const handleAskChatbotCustom = (promptText) => {
     setChatbotTrigger(promptText);
@@ -19,14 +40,50 @@ function MainApp() {
     return (
       <div className="min-vh-100 d-flex flex-column align-items-center justify-content-center" style={{ background: '#f8fafc' }}>
         <div className="spinner-border text-teal-600" role="status" style={{ width: '2.5rem', height: '2.5rem' }}></div>
-        <div className="mt-3 text-secondary small fw-medium">Connecting to Smart College Library...</div>
+        <div className="mt-3 text-secondary small fw-medium">Connecting to KCT AI Smart Library...</div>
       </div>
+    );
+  }
+
+  // FEATURE 9: Opening intro before login on first visit
+  if (initialIntroActive && !isAuthenticated) {
+    return (
+      <CinematicBookIntro 
+        mode="intro" 
+        onComplete={() => {
+          try {
+            sessionStorage.setItem('smart_library_intro_watched', 'true');
+          } catch (e) {}
+          setInitialIntroActive(false);
+        }} 
+      />
+    );
+  }
+
+  // Manual intro watch request from Login Page
+  if (manualIntro) {
+    return (
+      <CinematicBookIntro 
+        mode="intro" 
+        onComplete={() => setManualIntro(false)} 
+      />
+    );
+  }
+
+  // FEATURES 4, 5 & 9: Shared Cinematic 3D Book Animation for Every Login & Logout
+  if (authTransition) {
+    return (
+      <CinematicBookIntro 
+        mode={authTransition.mode} 
+        role={authTransition.role || 'student'}
+        onComplete={() => setAuthTransition(null)} 
+      />
     );
   }
 
   // FIRST PAGE MUST BE LOGIN (Section 2)
   if (!isAuthenticated || !user) {
-    return <LoginPage />;
+    return <LoginPage onWatchIntro={() => setManualIntro(true)} />;
   }
 
   return (

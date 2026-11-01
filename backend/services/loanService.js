@@ -1,41 +1,110 @@
 const db = require('../config/db');
 
-// Fixed system reference date for consistent institutional calculations
-function getSystemDate() {
-  // Using institutional local date 2026-10-28
-  return new Date('2026-10-28T00:00:00');
+// Format overdue duration into friendly text (minutes, hours, days)
+function formatOverdueDuration(diffMs) {
+  if (diffMs <= 0) return '0 minutes';
+  const mins = Math.floor(diffMs / 60000);
+  const hours = Math.floor(diffMs / 3600000);
+  const days = Math.floor(diffMs / 86400000);
+
+  if (mins < 60) {
+    return `${Math.max(1, mins)} minute${mins === 1 ? '' : 's'}`;
+  } else if (hours < 24) {
+    const remMins = mins % 60;
+    return `${hours} hour${hours === 1 ? '' : 's'}${remMins > 0 ? ` ${remMins}m` : ''}`;
+  } else {
+    return `${days} day${days === 1 ? '' : 's'}`;
+  }
 }
 
 /**
- * Calculates loan status based on issue date, due date, return date, and current date
+ * Formats a Date object as a local MySQL DATETIME string: YYYY-MM-DD HH:mm:ss
+ */
+function formatLocalDateTime(d) {
+  const dateObj = (d instanceof Date) ? d : new Date(d);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())} ${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}:${pad(dateObj.getSeconds())}`;
+}
+
+/**
+ * Feature 3: Get system borrowing duration configuration
+ * Testing Mode: 10 minutes (600,000 ms)
+ * Production Mode: 6 days (518,400,000 ms)
+ */
+async function getBorrowingConfig() {
+  try {
+    const rows = await db.query("SELECT policy_value FROM policies WHERE policy_key = 'borrowing_mode'");
+    const rawVal = (rows && rows.length > 0 && rows[0].policy_value) 
+      ? rows[0].policy_value.toLowerCase().trim() 
+      : (process.env.BORROWING_MODE || 'production').toLowerCase().trim();
+
+    const isTesting = rawVal === 'testing' || rawVal === 'test' || rawVal === '10m' || rawVal === '10_minutes';
+
+    return {
+      mode: isTesting ? 'testing' : 'production',
+      duration_label: isTesting ? '10 minutes' : '6 days',
+      duration_ms: isTesting ? 10 * 60 * 1000 : 6 * 24 * 60 * 60 * 1000,
+      days_equivalent: isTesting ? 0 : 6,
+      description: isTesting 
+        ? 'Testing Mode Active (10-Minute Borrowing Duration)' 
+        : 'Production Mode Active (6-Day Academic Borrowing Duration)'
+    };
+  } catch (err) {
+    return {
+      mode: 'production',
+      duration_label: '6 days',
+      duration_ms: 6 * 24 * 60 * 60 * 1000,
+      days_equivalent: 6,
+      description: 'Production Mode Active (6-Day Academic Borrowing Duration)'
+    };
+  }
+}
+
+/**
+ * Feature 3: Set system borrowing duration mode (Production vs Testing)
+ */
+async function setBorrowingMode(mode) {
+  const normalized = String(mode).toLowerCase().trim() === 'testing' ? 'testing' : 'production';
+  await db.query(`
+    INSERT INTO policies (policy_key, policy_value, description)
+    VALUES ('borrowing_mode', ?, 'System borrowing duration mode: production (6 days) or testing (10 minutes)')
+    ON DUPLICATE KEY UPDATE policy_value = VALUES(policy_value)
+  `, [normalized]);
+  return await getBorrowingConfig();
+}
+
+/**
+ * Calculates loan status based on issue date, due date, return date, and current date/time
  */
 function computeLoanStatus(transaction) {
-  const currentDate = getSystemDate();
+  const now = new Date();
   const dueDate = new Date(transaction.due_date);
-  dueDate.setHours(23, 59, 59, 999);
+  const nowMs = now.getTime();
+  const dueMs = dueDate.getTime();
+  const remainingMs = dueMs - nowMs;
 
   // If already marked returned
   if (transaction.status === 'Returned' || transaction.return_date) {
-    const returnDate = transaction.return_date ? new Date(transaction.return_date) : currentDate;
-    returnDate.setHours(0, 0, 0, 0);
-    const dueDateClean = new Date(transaction.due_date);
-    dueDateClean.setHours(0, 0, 0, 0);
-
-    const diffTime = returnDate.getTime() - dueDateClean.getTime();
+    const returnDate = transaction.return_date ? new Date(transaction.return_date) : now;
+    const diffTime = returnDate.getTime() - dueMs;
     const daysLate = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    if (daysLate > 0) {
+    if (diffTime > 0) {
       return {
         status_label: 'Returned Overdue',
         return_status: 'Overdue Return',
         was_overdue: true,
         is_overdue: false,
-        days_overdue: daysLate,
-        days_late: daysLate,
+        days_overdue: Math.max(1, daysLate),
+        days_late: Math.max(1, daysLate),
+        overdue_duration_text: `${Math.max(1, daysLate)} day(s) late`,
         days_left: 0,
         urgency_level: 'danger',
         overdue_color: 'dark-orange',
-        accrued_fine: parseFloat(transaction.fine_amount) || (daysLate * 5.00)
+        accrued_fine: parseFloat(transaction.fine_amount) || (Math.max(1, daysLate) * 5.00),
+        due_date_timestamp: dueMs,
+        server_now: nowMs,
+        remaining_ms: 0
       };
     } else {
       return {
@@ -45,20 +114,24 @@ function computeLoanStatus(transaction) {
         is_overdue: false,
         days_overdue: 0,
         days_late: 0,
+        overdue_duration_text: 'Returned On-Time',
         days_left: 0,
         urgency_level: 'success',
         overdue_color: 'green',
-        accrued_fine: 0.00
+        accrued_fine: 0.00,
+        due_date_timestamp: dueMs,
+        server_now: nowMs,
+        remaining_ms: 0
       };
     }
   }
 
-  // Active loan: check if overdue
-  const diffTime = dueDate.getTime() - currentDate.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  // Active loan: check if overdue against current time
+  if (nowMs > dueMs) {
+    const overdueMs = nowMs - dueMs;
+    const daysOverdue = Math.max(1, Math.ceil(overdueMs / (1000 * 60 * 60 * 24)));
+    const durationText = formatOverdueDuration(overdueMs);
 
-  if (diffDays < 0) {
-    const daysOverdue = Math.abs(diffDays);
     let color = 'yellow';
     if (daysOverdue >= 30) {
       color = 'red'; // 30+ days: critical priority
@@ -77,36 +150,49 @@ function computeLoanStatus(transaction) {
       is_overdue: true,
       days_overdue: daysOverdue,
       days_late: daysOverdue,
+      overdue_duration_text: durationText,
       days_left: 0,
       urgency_level: 'danger',
       overdue_color: color,
-      accrued_fine: daysOverdue * 5.00
-    };
-  } else if (diffDays <= 3) {
-    return {
-      status_label: 'Due Soon',
-      return_status: 'Due Soon (Unoverdue)',
-      was_overdue: false,
-      is_overdue: false,
-      days_overdue: 0,
-      days_late: 0,
-      days_left: diffDays,
-      urgency_level: 'warning',
-      overdue_color: 'orange',
-      accrued_fine: 0.00
+      accrued_fine: Math.max(5.00, daysOverdue * 5.00),
+      due_date_timestamp: dueMs,
+      server_now: nowMs,
+      remaining_ms: 0
     };
   } else {
+    // Active loan, still within borrowing period
+    const daysLeft = Math.ceil(remainingMs / (1000 * 60 * 60 * 24));
+    let durationText = '';
+
+    if (remainingMs < 60 * 60 * 1000) {
+      const mins = Math.floor(remainingMs / 60000);
+      const secs = Math.floor((remainingMs % 60000) / 1000);
+      durationText = `${mins}m ${secs}s left`;
+    } else if (remainingMs < 24 * 60 * 60 * 1000) {
+      const hours = Math.floor(remainingMs / 3600000);
+      const mins = Math.floor((remainingMs % 3600000) / 60000);
+      durationText = `${hours}h ${mins}m left`;
+    } else {
+      durationText = `${daysLeft} day${daysLeft === 1 ? '' : 's'} remaining`;
+    }
+
+    const isDueSoon = remainingMs <= 24 * 60 * 60 * 1000;
+
     return {
-      status_label: 'Issued',
-      return_status: 'Active Unoverdue',
+      status_label: isDueSoon ? 'Due Soon' : 'Issued',
+      return_status: isDueSoon ? 'Due Soon (Unoverdue)' : 'Active Unoverdue',
       was_overdue: false,
       is_overdue: false,
       days_overdue: 0,
       days_late: 0,
-      days_left: diffDays,
-      urgency_level: 'info',
-      overdue_color: 'blue',
-      accrued_fine: 0.00
+      overdue_duration_text: durationText,
+      days_left: Math.max(0, daysLeft),
+      urgency_level: isDueSoon ? 'warning' : 'info',
+      overdue_color: isDueSoon ? 'orange' : 'blue',
+      accrued_fine: 0.00,
+      due_date_timestamp: dueMs,
+      server_now: nowMs,
+      remaining_ms: remainingMs
     };
   }
 }
@@ -133,9 +219,10 @@ async function getStudentLoans(userId) {
       u.email as student_email,
       u.department as student_department,
       u.contact_number as student_contact,
-      DATE_FORMAT(t.issue_date, '%Y-%m-%d') as issue_date,
-      DATE_FORMAT(t.due_date, '%Y-%m-%d') as due_date,
-      DATE_FORMAT(t.return_date, '%Y-%m-%d') as return_date,
+      t.duration,
+      DATE_FORMAT(t.issue_date, '%Y-%m-%d %H:%i:%s') as issue_date,
+      DATE_FORMAT(t.due_date, '%Y-%m-%d %H:%i:%s') as due_date,
+      DATE_FORMAT(t.return_date, '%Y-%m-%d %H:%i:%s') as return_date,
       t.status,
       t.fine_amount,
       t.last_sms_sent_at,
@@ -206,9 +293,10 @@ async function getAllLoans({ status, search, overdueFilter, department } = {}) {
       u.email as student_email,
       u.department as student_department,
       u.contact_number as student_contact,
-      DATE_FORMAT(t.issue_date, '%Y-%m-%d') as issue_date,
-      DATE_FORMAT(t.due_date, '%Y-%m-%d') as due_date,
-      DATE_FORMAT(t.return_date, '%Y-%m-%d') as return_date,
+      t.duration,
+      DATE_FORMAT(t.issue_date, '%Y-%m-%d %H:%i:%s') as issue_date,
+      DATE_FORMAT(t.due_date, '%Y-%m-%d %H:%i:%s') as due_date,
+      DATE_FORMAT(t.return_date, '%Y-%m-%d %H:%i:%s') as return_date,
       t.status,
       t.fine_amount,
       t.last_sms_sent_at,
@@ -239,17 +327,17 @@ async function getAllLoans({ status, search, overdueFilter, department } = {}) {
 
   // Priority sorting:
   // 1. Unreturned overdue loans appear first
-  // 2. Highest number of overdue days first (DATEDIFF desc)
+  // 2. Highest overdue duration first (TIMESTAMPDIFF desc)
   // 3. Earliest due date next
   // 4. Then active on-schedule loans, then returned
   sql += `
     ORDER BY 
       (CASE 
-        WHEN t.status = 'Issued' AND t.due_date < '2026-10-28' THEN 1 
+        WHEN t.status = 'Issued' AND t.due_date < NOW() THEN 1 
         WHEN t.status = 'Issued' THEN 2 
         ELSE 3 
       END) ASC,
-      (CASE WHEN t.status = 'Issued' THEN DATEDIFF('2026-10-28', t.due_date) ELSE 0 END) DESC,
+      (CASE WHEN t.status = 'Issued' THEN TIMESTAMPDIFF(SECOND, t.due_date, NOW()) ELSE 0 END) DESC,
       t.due_date ASC,
       t.created_at DESC
   `;
@@ -267,7 +355,9 @@ async function getAllLoans({ status, search, overdueFilter, department } = {}) {
   // Additional filter for overdue ranges if requested:
   // '1d' (1 day), '2-7d', '8-14d', '15+d', 'sms_not_sent', 'sms_failed'
   if (overdueFilter) {
-    if (overdueFilter === '1d') {
+    if (overdueFilter === 'overdue' || overdueFilter === 'active_overdue') {
+      mapped = mapped.filter(l => l.is_overdue && l.status === 'Issued');
+    } else if (overdueFilter === '1d') {
       mapped = mapped.filter(l => l.is_overdue && l.days_overdue === 1);
     } else if (overdueFilter === '2-7d') {
       mapped = mapped.filter(l => l.is_overdue && l.days_overdue >= 2 && l.days_overdue <= 7);
@@ -286,10 +376,10 @@ async function getAllLoans({ status, search, overdueFilter, department } = {}) {
 }
 
 /**
- * Authorized Librarian Return Workflow
+ * Authorized Return Workflow (Supports Librarian desk return and Student self-service return)
  * Uses atomic MySQL transaction with row-level lock
  */
-async function recordBookReturn(transactionId, librarianUser) {
+async function recordBookReturn(transactionId, user = { name: 'Library Staff', role: 'librarian' }) {
   const conn = await db.getConnection();
 
   try {
@@ -312,6 +402,14 @@ async function recordBookReturn(transactionId, librarianUser) {
 
     const transaction = txRows[0];
 
+    // Check student authorization: student can only return their own loan
+    if (user && user.role === 'student' && transaction.user_id !== user.id) {
+      await conn.rollback();
+      const error = new Error('Unauthorized: You can only return books borrowed under your own account.');
+      error.statusCode = 403;
+      throw error;
+    }
+
     // 2. Prevent returning an already-returned transaction twice
     if (transaction.status === 'Returned') {
       await conn.rollback();
@@ -320,8 +418,8 @@ async function recordBookReturn(transactionId, librarianUser) {
       throw error;
     }
 
-    // 3. Update transaction status and recorded return date
-    const returnDateStr = '2026-10-28'; // Reference current date
+    // 3. Update transaction status and recorded return date to current timestamp
+    const returnDateStr = new Date().toISOString().slice(0, 19).replace('T', ' ');
     await conn.query(`
       UPDATE transactions 
       SET status = 'Returned', return_date = ?
@@ -346,13 +444,14 @@ async function recordBookReturn(transactionId, librarianUser) {
       WHERE t.id = ?
     `, [transactionId]);
 
-    console.log(`[Librarian Return] Return processed for Tx #${transactionId} ("${transaction.title}") by ${librarianUser.name}`);
+    console.log(`[Book Return] Return processed for Tx #${transactionId} ("${transaction.title}") by ${user.name}`);
 
     return {
       success: true,
-      message: `Book "${transaction.title}" successfully marked as Returned. Available copies updated.`,
+      message: `Book "${transaction.title}" successfully returned! Library copies restored.`,
       transaction: {
         ...updatedTx[0],
+        status: 'Returned',
         status_label: 'Returned',
         is_overdue: false
       }
@@ -403,8 +502,9 @@ async function issueBook({ bookId, studentUserId, dueDate, notes }, librarianUse
     const student = userRows[0];
 
     // 3. Insert transaction
-    const issueDateStr = '2026-10-28';
-    const finalDueDate = dueDate || '2026-11-11'; // default 14 days later
+    const nowObj = new Date();
+    const issueDateStr = formatLocalDateTime(nowObj);
+    const finalDueDate = dueDate || formatLocalDateTime(new Date(nowObj.getTime() + 14 * 24 * 60 * 60 * 1000));
 
     const [insertResult] = await conn.query(`
       INSERT INTO transactions (book_id, user_id, issue_date, due_date, status, notes)
@@ -440,9 +540,14 @@ async function issueBook({ bookId, studentUserId, dueDate, notes }, librarianUse
 
 /**
  * Student Self-Service Online Borrow Workflow
+ * Feature 1, 2, 3: Uses system borrowing configuration (Testing Mode = 10m, Production Mode = 6d)
  * Uses atomic MySQL transaction with row locking
  */
-async function borrowBookOnline(bookId, studentUser) {
+async function borrowBookOnline(bookId, studentUser, requestedDuration = null) {
+  const config = await getBorrowingConfig();
+  const durationLabel = config.duration_label;
+  const durationMs = config.duration_ms;
+
   const conn = await db.getConnection();
 
   try {
@@ -491,14 +596,17 @@ async function borrowBookOnline(bookId, studentUser) {
       throw err;
     }
 
-    // 4. Insert transaction with standard 14-day loan period
-    const issueDateStr = '2026-10-28';
-    const dueDateStr = '2026-11-11';
+    // 4. Calculate exact start and due timestamps from current server time
+    const startTime = new Date();
+    const dueTime = new Date(startTime.getTime() + durationMs);
+
+    const issueDateStr = formatLocalDateTime(startTime);
+    const dueDateStr = formatLocalDateTime(dueTime);
 
     const [insertResult] = await conn.query(`
-      INSERT INTO transactions (book_id, user_id, issue_date, due_date, status, notes)
-      VALUES (?, ?, ?, ?, 'Issued', 'Online self-service borrowing via Student Dashboard')
-    `, [bookId, studentUser.id, issueDateStr, dueDateStr]);
+      INSERT INTO transactions (book_id, user_id, issue_date, due_date, status, duration, notes)
+      VALUES (?, ?, ?, ?, 'Issued', ?, ?)
+    `, [bookId, studentUser.id, issueDateStr, dueDateStr, durationLabel, `Online borrowing (${config.mode} mode - ${durationLabel})`]);
 
     // 5. Decrement available copies atomically
     await conn.query(`
@@ -510,20 +618,30 @@ async function borrowBookOnline(bookId, studentUser) {
     // 6. Commit transaction
     await conn.commit();
 
-    console.log(`[Online Borrow] Student ${studentUser.name} (${studentUser.student_id || studentUser.username}) borrowed "${book.title}" (Tx #${insertResult.insertId})`);
+    console.log(`[Online Borrow] Student ${studentUser.name} borrowed "${book.title}" for ${durationLabel} (Tx #${insertResult.insertId}, Due: ${dueDateStr})`);
 
     return {
       success: true,
-      message: `Successfully borrowed "${book.title}"! Due date: 11 November 2026.`,
+      message: `Successfully borrowed "${book.title}"! Borrowing period: ${durationLabel}. Due at: ${dueDateStr}.`,
       transaction: {
+        id: insertResult.insertId,
         transaction_id: insertResult.insertId,
         book_id: book.id,
         title: book.title,
         author: book.author,
+        cover_image: book.cover_image,
+        shelf_location: book.shelf_location || 'A1',
+        book_department: book.department || 'CSE',
         issue_date: issueDateStr,
         due_date: dueDateStr,
+        due_date_timestamp: dueTime.getTime(),
+        server_now: startTime.getTime(),
+        remaining_ms: durationMs,
+        duration: durationLabel,
+        days_left: config.days_equivalent,
         status: 'Issued',
-        status_label: 'Issued'
+        status_label: 'Issued',
+        is_overdue: false
       }
     };
   } catch (err) {
@@ -624,7 +742,98 @@ async function updateLoanDetails(transactionId, updateData = {}, staffUser = {})
   };
 }
 
+/**
+ * Get verified notifications for a specific student (Feature 2 & 5)
+ * Scoped strictly to the logged-in student (privacy enforced)
+ */
+async function getStudentNotifications(userId) {
+  const sql = `
+    SELECT 
+      n.id,
+      n.user_id,
+      n.transaction_id,
+      COALESCE(n.title, 'Book Return Deadline Expired') as title,
+      n.type,
+      n.recipient,
+      n.message,
+      n.status,
+      n.provider,
+      n.is_read,
+      n.read_at,
+      DATE_FORMAT(n.created_at, '%Y-%m-%d %H:%i:%s') as created_at,
+      u.name as student_name,
+      b.title as book_title,
+      b.author as book_author,
+      b.cover_image,
+      t.duration,
+      DATE_FORMAT(t.due_date, '%Y-%m-%d %H:%i:%s') as due_date,
+      t.status as loan_status
+    FROM notifications n
+    JOIN users u ON n.user_id = u.id
+    LEFT JOIN transactions t ON n.transaction_id = t.id
+    LEFT JOIN books b ON t.book_id = b.id
+    WHERE n.user_id = ?
+    ORDER BY n.created_at DESC
+    LIMIT 50
+  `;
+  const rows = await db.query(sql, [userId]);
+
+  return rows.map(item => {
+    let overdueDurationText = '0 minutes';
+    let isOverdue = false;
+    let formattedDueDate = 'N/A';
+
+    if (item.due_date) {
+      const due = new Date(item.due_date);
+      const diffMs = Date.now() - due.getTime();
+      formattedDueDate = due.toLocaleString('en-IN', {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+      });
+      if (diffMs > 0) {
+        isOverdue = true;
+        overdueDurationText = formatOverdueDuration(diffMs);
+      }
+    }
+
+    return {
+      ...item,
+      is_read: Boolean(item.is_read),
+      is_overdue: isOverdue,
+      overdue_duration_text: overdueDurationText,
+      due_date_formatted: formattedDueDate,
+      return_instructions: 'Please return this book to the KCT AI Smart Library circulation desk or renewal kiosk immediately to prevent additional daily fines.'
+    };
+  });
+}
+
+/**
+ * Mark a specific student notification as read
+ */
+async function markNotificationAsRead(notificationId, userId) {
+  await db.query(`
+    UPDATE notifications 
+    SET is_read = TRUE, read_at = NOW() 
+    WHERE id = ? AND user_id = ?
+  `, [notificationId, userId]);
+  return true;
+}
+
+/**
+ * Mark all notifications for a student as read
+ */
+async function markAllNotificationsAsRead(userId) {
+  await db.query(`
+    UPDATE notifications 
+    SET is_read = TRUE, read_at = NOW() 
+    WHERE user_id = ? AND is_read = FALSE
+  `, [userId]);
+  return true;
+}
+
 module.exports = {
+  getBorrowingConfig,
+  setBorrowingMode,
   computeLoanStatus,
   getStudentLoans,
   getStudentLoanSummary,
@@ -633,5 +842,8 @@ module.exports = {
   issueBook,
   borrowBookOnline,
   renewLoan,
-  updateLoanDetails
+  updateLoanDetails,
+  getStudentNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead
 };

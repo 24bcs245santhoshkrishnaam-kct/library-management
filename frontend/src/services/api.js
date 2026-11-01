@@ -102,8 +102,33 @@ export const getMyLoanStatus = async () => {
   return res.data;
 };
 
-export const borrowBookOnline = async (bookId) => {
-  const res = await API.post('/loans/borrow', { bookId });
+export const getStudentNotifications = async () => {
+  const res = await API.get('/loans/my/notifications');
+  return res.data;
+};
+
+export const markNotificationAsRead = async (id) => {
+  const res = await API.put(`/loans/my/notifications/${id}/read`);
+  return res.data;
+};
+
+export const markAllNotificationsAsRead = async () => {
+  const res = await API.put('/loans/my/notifications/read-all');
+  return res.data;
+};
+
+export const getBorrowingMode = async () => {
+  const res = await API.get('/loans/borrowing-mode');
+  return res.data;
+};
+
+export const updateBorrowingMode = async (mode) => {
+  const res = await API.post('/loans/borrowing-mode', { mode });
+  return res.data;
+};
+
+export const borrowBookOnline = async (bookId, duration = '6 days') => {
+  const res = await API.post('/loans/borrow', { bookId, duration });
   return res.data;
 };
 
@@ -156,6 +181,16 @@ export const sendBulkOverdueSMS = async (loanIds) => {
 
 export const getSMSLogs = async () => {
   const res = await API.get('/sms/logs');
+  return res.data;
+};
+
+export const runAutoOverdueCheck = async () => {
+  const res = await API.post('/sms/run-auto-check');
+  return res.data;
+};
+
+export const getSchedulerStatus = async () => {
+  const res = await API.get('/sms/scheduler-status');
   return res.data;
 };
 

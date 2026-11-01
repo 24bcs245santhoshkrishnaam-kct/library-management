@@ -184,6 +184,51 @@ const studentAccounts20 = [
     student_id: '24BCS118',
     department: 'Applied Mathematics',
     contact_number: '+91 98420 12345'
+  },
+  {
+    name: 'Parama',
+    email: 'parama@kct.ac.in',
+    username: 'parama',
+    passwordRaw: '12345',
+    student_id: '24BCS119',
+    department: 'Mechanical Engineering',
+    contact_number: '+91 98405 67891'
+  },
+  {
+    name: 'Paramasivam (Parama)',
+    email: 'parama.student@kct.ac.in',
+    username: 'parama.student',
+    passwordRaw: '12345',
+    student_id: '24BCS120',
+    department: 'Mechanical Engineering',
+    contact_number: '+91 98405 67892'
+  },
+  {
+    name: 'Prawin S',
+    email: 'prawin.student@kct.ac.in',
+    username: 'prawin.student',
+    passwordRaw: '12345',
+    student_id: '24BCS121',
+    department: 'Electronics & Communication Engineering',
+    contact_number: '+91 98404 56780'
+  },
+  {
+    name: 'Prawin Kumar',
+    email: 'prawin.kct@gmail.com',
+    username: 'prawin.kct',
+    passwordRaw: '12345',
+    student_id: '24BCS122',
+    department: 'Electronics & Communication Engineering',
+    contact_number: '+91 98404 56781'
+  },
+  {
+    name: 'Rupak K',
+    email: 'rupak.kct@gmail.com',
+    username: 'rupak.kct',
+    passwordRaw: '12345',
+    student_id: '24BCS123',
+    department: 'AI & Data Science',
+    contact_number: '+91 98403 45679'
   }
 ];
 

@@ -13,9 +13,14 @@ import {
   sendOverdueSMS,
   sendBulkOverdueSMS,
   getSMSLogs,
+  runAutoOverdueCheck,
   getDepartments,
-  updateLoanDetails
+  updateLoanDetails,
+  getBorrowingMode,
+  updateBorrowingMode
 } from '../services/api';
+import CountdownTimer from './CountdownTimer';
+import { formatINR } from '../utils/currencyFormatter';
 import { 
   ShieldCheck, 
   AlertTriangle, 
@@ -58,6 +63,38 @@ export default function LibrarianDashboard() {
 
   // Notification toast
   const [toast, setToast] = useState(null);
+
+  // Borrowing Duration Mode State (Feature 3)
+  const [borrowingConfig, setBorrowingConfig] = useState({
+    mode: 'testing',
+    duration_label: '10 minutes',
+    duration_ms: 10 * 60 * 1000
+  });
+
+  const fetchBorrowingMode = async () => {
+    try {
+      const cfg = await getBorrowingMode();
+      if (cfg && cfg.mode) setBorrowingConfig(cfg);
+    } catch (e) {}
+  };
+
+  const handleToggleBorrowingMode = async () => {
+    const nextMode = borrowingConfig.mode === 'testing' ? 'production' : 'testing';
+    try {
+      const updated = await updateBorrowingMode(nextMode);
+      setBorrowingConfig(updated);
+      setToast({
+        type: 'success',
+        message: `Library Mode switched to ${updated.mode.toUpperCase()} (${updated.duration_label} per book)!`
+      });
+      fetchLoans();
+    } catch (err) {
+      setToast({
+        type: 'danger',
+        message: err.response?.data?.message || err.message || 'Failed to switch borrowing mode'
+      });
+    }
+  };
 
   // SMS Single Modal State
   const [smsModalLoan, setSmsModalLoan] = useState(null);
@@ -154,6 +191,7 @@ export default function LibrarianDashboard() {
 
   useEffect(() => {
     fetchDepts();
+    fetchBorrowingMode();
   }, []);
 
   useEffect(() => {
@@ -165,6 +203,26 @@ export default function LibrarianDashboard() {
     } else {
       fetchLoans();
     }
+  }, [activeTab, overdueFilter, selectedDept, searchQuery]);
+
+  // Feature 4: Real-Time Auto-Refresh Monitor (every 4 seconds for instant borrow updates)
+  useEffect(() => {
+    const pollInterval = setInterval(() => {
+      if (activeTab === 'overdue' || activeTab === 'circulation') {
+        getAllLoans({
+          status: activeTab === 'overdue' ? 'Issued' : undefined,
+          overdueFilter: overdueFilter !== 'all' ? overdueFilter : undefined,
+          department: selectedDept !== 'All' ? selectedDept : undefined,
+          search: searchQuery.trim() || undefined
+        }).then(data => {
+          if (data && data.loans) {
+            setLoans(data.loans);
+          }
+        }).catch(() => {});
+      }
+    }, 4000);
+
+    return () => clearInterval(pollInterval);
   }, [activeTab, overdueFilter, selectedDept, searchQuery]);
 
   // Separate overdue loans and active on-schedule loans
@@ -187,33 +245,41 @@ export default function LibrarianDashboard() {
     }
   };
 
-  // Open Single SMS Modal
+  // Open Single SMS Modal (Feature 4)
   const openSingleSMSModal = async (loan) => {
     setSmsModalLoan(loan);
     try {
       const res = await previewOverdueSMS(loan.transaction_id);
       setSmsPreviewMessage(res.message);
     } catch (e) {
-      setSmsPreviewMessage(`Dear ${loan.student_name}, the book '${loan.title}' was due on ${loan.due_date} and is now ${loan.days_overdue} day(s) overdue. Please return it to the central library immediately.`);
+      const overdueText = loan.overdue_duration_text || `${loan.days_overdue || 1} day(s)`;
+      setSmsPreviewMessage(`Dear ${loan.student_name}, your library book '${loan.title}' was due on ${loan.due_date} and is overdue by ${overdueText}. Please return it according to library rules. — KCT AI Smart Library`);
     }
   };
 
-  // Send Single SMS
+  // Send Single SMS (Feature 4 & 5)
   const handleSendSingleSMS = async () => {
     if (!smsModalLoan) return;
     setSendingSMS(true);
     try {
       const res = await sendOverdueSMS(smsModalLoan.transaction_id, smsPreviewMessage);
-      setToast({
-        type: 'success',
-        message: res.message || `SMS Reminder sent to ${smsModalLoan.student_name} (${smsModalLoan.student_contact})!`
-      });
+      if (res.warning) {
+        setToast({
+          type: 'warning',
+          message: `${res.message} ${res.warning}`
+        });
+      } else {
+        setToast({
+          type: 'success',
+          message: res.message || `SMS Reminder dispatched to ${smsModalLoan.student_name}!`
+        });
+      }
       setSmsModalLoan(null);
       await fetchLoans();
     } catch (err) {
       setToast({
         type: 'danger',
-        message: err.response?.data?.message || 'Failed to send SMS'
+        message: err.response?.data?.message || 'Failed to dispatch reminder'
       });
     } finally {
       setSendingSMS(false);
@@ -368,7 +434,7 @@ export default function LibrarianDashboard() {
             <ShieldCheck size={22} className="text-white" />
           </div>
           <div>
-            <h6 className="fw-bold mb-0 text-navy-900" style={{ fontSize: '0.94rem' }}>Smart Library</h6>
+            <h6 className="fw-bold mb-0 text-navy-900" style={{ fontSize: '0.94rem' }}>KCT AI Smart Library</h6>
             <span className="text-muted" style={{ fontSize: '0.72rem' }}>Librarian Circulation</span>
           </div>
         </div>
@@ -472,6 +538,22 @@ export default function LibrarianDashboard() {
           </div>
 
           <div className="d-flex align-items-center gap-2">
+            <button
+              type="button"
+              className={`btn btn-sm d-flex align-items-center gap-1.5 ${
+                borrowingConfig.mode === 'testing'
+                  ? 'btn-warning text-dark fw-bold shadow-xs'
+                  : 'btn-outline-navy fw-semibold'
+              }`}
+              onClick={handleToggleBorrowingMode}
+              title="Click to toggle between Testing Mode (10m) and Production Mode (6d)"
+            >
+              <Clock size={14} />
+              <span>
+                {borrowingConfig.mode === 'testing' ? 'Mode: Testing (10 Mins)' : 'Mode: Production (6 Days)'}
+              </span>
+            </button>
+
             <button
               type="button"
               className="btn btn-navy btn-sm"
@@ -613,10 +695,10 @@ export default function LibrarianDashboard() {
                     <thead>
                       <tr>
                         <th>Student Information</th>
-                        <th>Book Title</th>
+                        <th>Book Information</th>
                         <th>Due Date</th>
-                        <th>Overdue Status</th>
-                        <th>Accrued Fine</th>
+                        <th>Overdue Countdown / Status</th>
+                        <th>Accrued Fine (₹)</th>
                         <th>SMS Alert</th>
                         <th>Actions</th>
                       </tr>
@@ -636,11 +718,11 @@ export default function LibrarianDashboard() {
                             </div>
                           </td>
 
-                          {/* Book Title */}
+                          {/* Book Title & ID */}
                           <td>
                             <div className="fw-semibold text-navy-900">{loan.title}</div>
                             <div className="text-muted" style={{ fontSize: '0.74rem' }}>
-                              {loan.author} • Shelf: {loan.shelf_location || 'A1'}
+                              Book ID: <strong>#{loan.book_id}</strong> • By {loan.author} • Shelf: {loan.shelf_location || 'A1'}
                             </div>
                           </td>
 
@@ -650,17 +732,20 @@ export default function LibrarianDashboard() {
                             <div className="text-muted" style={{ fontSize: '0.72rem' }}>Issued: {loan.issue_date}</div>
                           </td>
 
-                          {/* Overdue Days Badge with Color Coding */}
+                          {/* Overdue Countdown & Status */}
                           <td>
-                            <span className={`badge-overdue badge-overdue-${loan.overdue_color}`}>
-                              {loan.days_overdue} Day(s) Overdue
-                            </span>
+                            <CountdownTimer 
+                              dueDate={loan.due_date}
+                              dueDateTimestamp={loan.due_date_timestamp}
+                              status={loan.status}
+                              isOverdue={loan.is_overdue}
+                            />
                           </td>
 
-                          {/* Fine ($5.00/day) */}
+                          {/* Fine (₹5.00/day) */}
                           <td>
-                            <strong className="text-danger">${loan.accrued_fine.toFixed(2)}</strong>
-                            <div className="text-muted" style={{ fontSize: '0.7rem' }}>($5.00/day)</div>
+                            <strong className="text-danger">{formatINR(loan.accrued_fine)}</strong>
+                            <div className="text-muted" style={{ fontSize: '0.7rem' }}>(₹5.00/day)</div>
                           </td>
 
                           {/* SMS Status */}
@@ -795,12 +880,12 @@ export default function LibrarianDashboard() {
                     <thead>
                       <tr>
                         <th>Tx ID</th>
-                        <th>Student Borrower</th>
-                        <th>Book Title</th>
-                        <th>Issue Date</th>
-                        <th>Due Date</th>
-                        <th>Actual Return</th>
-                        <th>Return Status & History</th>
+                        <th>Student Name & ID</th>
+                        <th>Book Title & ID</th>
+                        <th>Borrowed Date & Time</th>
+                        <th>Due Date & Time</th>
+                        <th>Remaining Time (Countdown)</th>
+                        <th>Borrowing Status</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
@@ -830,22 +915,38 @@ export default function LibrarianDashboard() {
                               <td><strong>#{loan.transaction_id}</strong></td>
                               <td>
                                 <div className="fw-semibold text-navy-900">{loan.student_name}</div>
-                                <div className="text-muted" style={{ fontSize: '0.72rem' }}>
-                                  Roll: {loan.student_id} • Dept: {loan.student_department || 'CSE'}
+                                <div className="text-muted" style={{ fontSize: '0.74rem' }}>
+                                  Roll / ID: <strong>{loan.student_id || 'N/A'}</strong>
+                                </div>
+                                <div className="text-secondary d-flex align-items-center gap-1 mt-0.5" style={{ fontSize: '0.72rem' }}>
+                                  <Phone size={10} className="text-teal-600" />
+                                  <span>{loan.student_contact || '+91 98765 43210'}</span>
                                 </div>
                               </td>
                               <td>
                                 <div className="fw-semibold text-navy-900">{loan.title}</div>
-                                <div className="text-muted" style={{ fontSize: '0.72rem' }}>{loan.author}</div>
+                                <div className="text-muted" style={{ fontSize: '0.72rem' }}>
+                                  Book ID: <strong>#{loan.book_id}</strong> • By {loan.author}
+                                </div>
                               </td>
-                              <td>{loan.issue_date}</td>
-                              <td><strong>{loan.due_date}</strong></td>
                               <td>
-                                {loan.return_date ? (
-                                  <strong className="text-teal-600">{loan.return_date}</strong>
-                                ) : (
-                                  <span className="text-muted small">Not Returned</span>
-                                )}
+                                <div className="text-navy-900 small fw-medium">{loan.issue_date}</div>
+                                <span className="badge bg-light text-navy-900 border mt-0.5" style={{ fontSize: '0.7rem' }}>
+                                  {loan.duration || '6 days'}
+                                </span>
+                              </td>
+                              <td>
+                                <strong className={loan.is_overdue ? 'text-danger' : 'text-navy-900'}>
+                                  {loan.due_date}
+                                </strong>
+                              </td>
+                              <td>
+                                <CountdownTimer 
+                                  dueDate={loan.due_date}
+                                  dueDateTimestamp={loan.due_date_timestamp}
+                                  status={loan.status}
+                                  isOverdue={loan.is_overdue}
+                                />
                               </td>
                               <td>
                                 {isReturned ? (
@@ -855,21 +956,44 @@ export default function LibrarianDashboard() {
                                     </span>
                                   ) : (
                                     <span className="badge bg-success-subtle text-success px-2.5 py-1 rounded-pill small fw-semibold d-inline-flex align-items-center gap-1">
-                                      <CheckCircle size={12} /> Returned On-Time (Unoverdue)
+                                      <CheckCircle size={12} /> Returned On-Time
                                     </span>
                                   )
                                 ) : loan.is_overdue ? (
                                   <span className={`badge-overdue badge-overdue-${loan.overdue_color}`}>
-                                    Active Overdue ({loan.days_overdue}d)
+                                    Active Overdue ({loan.overdue_duration_text || `${loan.days_overdue}d`})
                                   </span>
                                 ) : (
-                                  <span className="badge-issued-blue px-2.5 py-1 rounded-pill small">
-                                    Active Unoverdue ({loan.days_left}d left)
+                                  <span className="badge-issued-blue px-2.5 py-1 rounded-pill small fw-semibold">
+                                    Active ({loan.days_left}d left)
                                   </span>
                                 )}
                               </td>
                               <td>
-                                <div className="d-flex align-items-center gap-1">
+                                <div className="d-flex align-items-center gap-1 flex-wrap">
+                                  {loan.status === 'Issued' && (
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1 p-1 px-2.5 rounded-pill small"
+                                      title="Mark book as returned"
+                                      onClick={() => handleReturn(loan.transaction_id, loan.title)}
+                                    >
+                                      <CheckCircle size={12} />
+                                      <span>Return</span>
+                                    </button>
+                                  )}
+                                  {loan.status === 'Issued' && loan.is_overdue && (
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-outline-teal d-flex align-items-center gap-1 p-1 px-2"
+                                      title="Send Overdue SMS Reminder"
+                                      onClick={() => openSingleSMSModal(loan)}
+                                    >
+                                      <Send size={12} />
+                                      <span style={{ fontSize: '0.72rem' }}>SMS</span>
+                                    </button>
+                                  )}
+
                                   <button
                                     type="button"
                                     className="btn btn-sm btn-light border p-1.5 text-secondary"
@@ -1044,15 +1168,55 @@ export default function LibrarianDashboard() {
           )}
 
           {/* ==============================================================
-              VIEW 4: SMS ALERT HISTORY
+              VIEW 4: SMS & NOTIFICATION ALERT HISTORY (Feature 4)
              ============================================================== */}
           {activeTab === 'sms_logs' && (
             <div>
-              <div className="mb-4">
-                <h3 className="fw-bold text-navy-900 mb-1" style={{ letterSpacing: '-0.02em' }}>
-                  SMS Overdue Alert History ({smsLogs.length} Dispatched)
-                </h3>
-                <p className="text-secondary small mb-0">Audit log of automated SMS reminders sent to students.</p>
+              <div className="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+                <div>
+                  <h3 className="fw-bold text-navy-900 mb-1" style={{ letterSpacing: '-0.02em' }}>
+                    SMS & Notification Overdue Alert History ({smsLogs.length})
+                  </h3>
+                  <p className="text-secondary small mb-0">
+                    Live audit log of cellular SMS dispatches and student in-app notifications generated by the 24/7 background scheduler.
+                  </p>
+                </div>
+                <div className="d-flex align-items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-teal d-flex align-items-center gap-1.5"
+                    onClick={async () => {
+                      try {
+                        const res = await runAutoOverdueCheck();
+                        setToast({
+                          type: 'success',
+                          message: res.result?.dispatchedCount !== undefined 
+                            ? `Scheduler check executed: ${res.result.dispatchedCount} reminders dispatched.` 
+                            : 'Background overdue check completed.'
+                        });
+                        const refreshed = await getSMSLogs();
+                        setSmsLogs(refreshed.logs || []);
+                      } catch (err) {
+                        setToast({ type: 'danger', message: err.message || 'Auto-check trigger failed' });
+                      }
+                    }}
+                  >
+                    <RefreshCw size={14} />
+                    <span>Run Auto-Check Now</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border d-flex align-items-center gap-1.5"
+                    onClick={() => {
+                      setLoadingLogs(true);
+                      getSMSLogs().then(res => setSmsLogs(res.logs || [])).finally(() => setLoadingLogs(false));
+                    }}
+                    disabled={loadingLogs}
+                  >
+                    <RefreshCw size={14} className={loadingLogs ? 'spin' : ''} />
+                    <span>Refresh Logs</span>
+                  </button>
+                </div>
               </div>
 
               {loadingLogs ? (
@@ -1069,31 +1233,76 @@ export default function LibrarianDashboard() {
                   <table className="table-clean">
                     <thead>
                       <tr>
-                        <th>Recipient Student</th>
-                        <th>Contact Number</th>
-                        <th>Message Content</th>
-                        <th>Status</th>
-                        <th>Sent Time</th>
+                        <th>Student Name & ID</th>
+                        <th>Book Title</th>
+                        <th>Due Date</th>
+                        <th>Registered Mobile</th>
+                        <th>Sent Date / Time</th>
+                        <th>SMS Delivery Status</th>
+                        <th>In-App Notification</th>
+                        <th>SMS Message Preview</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {smsLogs.map(log => (
-                        <tr key={log.id}>
-                          <td>
-                            <div className="fw-semibold text-navy-900">{log.recipient_name || 'Student'}</div>
-                          </td>
-                          <td><code>{log.recipient_phone}</code></td>
-                          <td style={{ maxWidth: '380px' }}>
-                            <div className="text-secondary small leading-relaxed">{log.message}</div>
-                          </td>
-                          <td>
-                            <span className="badge bg-success-subtle text-success px-2.5 py-1 rounded-pill small">
-                              {log.status}
-                            </span>
-                          </td>
-                          <td className="text-muted small">{log.created_at}</td>
-                        </tr>
-                      ))}
+                      {smsLogs.map(log => {
+                        const isDelivered = log.status === 'Delivered';
+                        const isSent = log.status === 'Sent';
+                        const isPending = log.status === 'Pending';
+
+                        return (
+                          <tr key={log.id}>
+                            <td>
+                              <div className="fw-semibold text-navy-900">{log.student_name || 'Student'}</div>
+                              <div className="text-muted" style={{ fontSize: '0.72rem' }}>
+                                Roll: <strong>{log.student_id || 'N/A'}</strong>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="fw-semibold text-navy-900 small">{log.book_title || 'Library Book'}</div>
+                            </td>
+                            <td>
+                              <div className="text-danger small fw-semibold">{log.due_date || 'N/A'}</div>
+                            </td>
+                            <td>
+                              <code>{log.contact_number || log.recipient || 'N/A'}</code>
+                            </td>
+                            <td className="text-muted small">
+                              {log.created_at}
+                            </td>
+                            <td>
+                              <span 
+                                className={`badge ${
+                                  isDelivered 
+                                    ? 'bg-success-subtle text-success' 
+                                    : isSent 
+                                    ? 'bg-primary-subtle text-primary' 
+                                    : isPending 
+                                    ? 'bg-warning-subtle text-warning' 
+                                    : 'bg-danger-subtle text-danger'
+                                } px-2.5 py-1 rounded-pill small fw-semibold`}
+                                title={log.provider ? `Provider: ${log.provider}` : undefined}
+                              >
+                                {log.status || 'Pending'}
+                              </span>
+                              {log.provider && (
+                                <div className="text-muted mt-0.5" style={{ fontSize: '0.68rem' }}>
+                                  {log.provider.startsWith('Unconfigured') ? 'Gateway Unconfigured' : log.provider.slice(0, 24)}
+                                </div>
+                              )}
+                            </td>
+                            <td>
+                              <span className="badge bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded-pill small">
+                                ✓ Created & Synced
+                              </span>
+                            </td>
+                            <td style={{ maxWidth: '320px' }}>
+                              <div className="text-secondary small text-truncate" title={log.message} style={{ maxWidth: '300px' }}>
+                                {log.message}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1118,21 +1327,29 @@ export default function LibrarianDashboard() {
 
             <div className="p-4">
               <div className="p-3 mb-3 rounded-3 bg-light border small">
-                <div className="d-flex justify-content-between mb-1">
+                <div className="d-flex justify-content-between mb-1.5">
                   <span className="text-muted">Recipient Student:</span>
                   <strong className="text-navy-900">{smsModalLoan.student_name}</strong>
                 </div>
-                <div className="d-flex justify-content-between mb-1">
-                  <span className="text-muted">Phone Number:</span>
-                  <code>{smsModalLoan.student_contact || '+91 98765 43210'}</code>
+                <div className="d-flex justify-content-between mb-1.5">
+                  <span className="text-muted">Student Login / Email:</span>
+                  <code className="text-secondary">{smsModalLoan.student_email || 'N/A'}</code>
                 </div>
-                <div className="d-flex justify-content-between mb-1">
-                  <span className="text-muted">Overdue Book:</span>
+                <div className="d-flex justify-content-between mb-1.5">
+                  <span className="text-muted">Authorized Contact Number:</span>
+                  <code className="text-teal-700 fw-bold">{smsModalLoan.student_contact || '+91 98765 43210'}</code>
+                </div>
+                <div className="d-flex justify-content-between mb-1.5">
+                  <span className="text-muted">Overdue Book Title:</span>
                   <span className="fw-semibold text-navy-900">{smsModalLoan.title}</span>
                 </div>
+                <div className="d-flex justify-content-between mb-1.5">
+                  <span className="text-muted">Actual Due Time:</span>
+                  <strong className="text-danger">{smsModalLoan.due_date}</strong>
+                </div>
                 <div className="d-flex justify-content-between">
-                  <span className="text-muted">Overdue Duration:</span>
-                  <span className="text-danger fw-bold">{smsModalLoan.days_overdue} days</span>
+                  <span className="text-muted">Current Overdue Duration:</span>
+                  <span className="text-danger fw-bold">{smsModalLoan.overdue_duration_text || `${smsModalLoan.days_overdue} days`}</span>
                 </div>
               </div>
 
@@ -1475,7 +1692,7 @@ export default function LibrarianDashboard() {
                   />
                 </div>
                 <div className="col-6">
-                  <label className="form-label small fw-semibold text-secondary">Accrued / Adjusted Fine ($)</label>
+                  <label className="form-label small fw-semibold text-secondary">Accrued / Adjusted Fine (₹)</label>
                   <input
                     type="number"
                     step="0.50"

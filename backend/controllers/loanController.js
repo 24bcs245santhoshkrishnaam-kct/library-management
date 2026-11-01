@@ -104,12 +104,12 @@ async function issueLoan(req, res) {
 
 async function borrowOnline(req, res) {
   try {
-    const { bookId } = req.body;
+    const { bookId, duration } = req.body;
     if (!bookId) {
       return res.status(400).json({ error: 'Validation Error', message: 'Book ID is required to borrow online' });
     }
 
-    const result = await loanService.borrowBookOnline(parseInt(bookId, 10), req.user);
+    const result = await loanService.borrowBookOnline(parseInt(bookId, 10), req.user, duration);
     res.json(result);
   } catch (err) {
     console.error('[Borrow Online Error]:', err.message);
@@ -119,6 +119,52 @@ async function borrowOnline(req, res) {
       error: 'Online Borrow Failed',
       message: err.message
     });
+  }
+}
+
+async function getStudentNotifications(req, res) {
+  try {
+    const notifications = await loanService.getStudentNotifications(req.user.id);
+    const unreadCount = notifications.filter(n => !n.is_read).length;
+    res.json({
+      success: true,
+      count: notifications.length,
+      unread_count: unreadCount,
+      notifications
+    });
+  } catch (err) {
+    console.error('[Get Student Notifications Error]:', err.message);
+    res.status(500).json({ error: 'Internal Server Error', message: err.message });
+  }
+}
+
+async function markNotificationAsRead(req, res) {
+  try {
+    const notificationId = parseInt(req.params.id, 10);
+    if (!notificationId) {
+      return res.status(400).json({ error: 'Validation Error', message: 'Valid notification ID required' });
+    }
+    await loanService.markNotificationAsRead(notificationId, req.user.id);
+    res.json({
+      success: true,
+      message: 'Notification marked as read'
+    });
+  } catch (err) {
+    console.error('[Mark Notification Read Error]:', err.message);
+    res.status(500).json({ error: 'Failed to update notification', message: err.message });
+  }
+}
+
+async function markAllNotificationsAsRead(req, res) {
+  try {
+    await loanService.markAllNotificationsAsRead(req.user.id);
+    res.json({
+      success: true,
+      message: 'All notifications marked as read'
+    });
+  } catch (err) {
+    console.error('[Mark All Notifications Read Error]:', err.message);
+    res.status(500).json({ error: 'Failed to update notifications', message: err.message });
   }
 }
 
@@ -162,6 +208,37 @@ async function updateLoan(req, res) {
   }
 }
 
+async function getBorrowingMode(req, res) {
+  try {
+    const config = await loanService.getBorrowingConfig();
+    res.json({
+      success: true,
+      ...config
+    });
+  } catch (err) {
+    console.error('[Get Borrowing Mode Error]:', err.message);
+    res.status(500).json({ error: 'Failed to retrieve configuration', message: err.message });
+  }
+}
+
+async function updateBorrowingMode(req, res) {
+  try {
+    const { mode } = req.body;
+    if (!mode || (mode !== 'production' && mode !== 'testing')) {
+      return res.status(400).json({ error: 'Validation Error', message: 'Mode must be "production" or "testing"' });
+    }
+    const updated = await loanService.setBorrowingMode(mode);
+    res.json({
+      success: true,
+      message: `Borrowing duration mode updated to ${updated.mode} (${updated.duration_label})`,
+      ...updated
+    });
+  } catch (err) {
+    console.error('[Update Borrowing Mode Error]:', err.message);
+    res.status(500).json({ error: 'Failed to update mode', message: err.message });
+  }
+}
+
 module.exports = {
   getMyLoans,
   getMyStatus,
@@ -170,5 +247,10 @@ module.exports = {
   issueLoan,
   borrowOnline,
   renewLoan,
-  updateLoan
+  updateLoan,
+  getStudentNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  getBorrowingMode,
+  updateBorrowingMode
 };

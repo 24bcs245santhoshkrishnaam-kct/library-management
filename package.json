@@ -6,7 +6,7 @@
     "start": "node backend/server.js",
     "backend": "cd backend && npm start",
     "frontend": "cd frontend && npm run dev",
-    "build": "cd frontend && npm run build",
+    "build": "npm install --prefix backend && npm install --prefix frontend && cd frontend && npm run build",
     "seed": "cd backend && npm run seed",
     "test": "cd backend && npm test"
   }

@@ -12,6 +12,7 @@ const aiRoutes = require('./routes/aiRoutes');
 const loanRoutes = require('./routes/loanRoutes');
 const smsRoutes = require('./routes/smsRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const { startOverdueScheduler } = require('./services/overdueScheduler');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -105,6 +106,7 @@ async function startServer(retries = 2) {
   const server = app.listen(PORT, () => {
     console.log(`[Server] Smart Library running at http://localhost:${PORT}`);
     console.log(`[Server] Health check available at http://localhost:${PORT}/api/health`);
+    startOverdueScheduler();
   });
 
   server.on('error', (err) => {
