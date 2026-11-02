@@ -35,8 +35,8 @@ async function testConnection() {
     try {
       console.log('[Database] Connecting to configured MongoDB URI...');
       mongoClient = new MongoClient(uri, { 
-        serverSelectionTimeoutMS: 2000,
-        connectTimeoutMS: 2000
+        serverSelectionTimeoutMS: 8000,
+        connectTimeoutMS: 8000
       });
       await mongoClient.connect();
       mongoDb = mongoClient.db(DB_NAME);

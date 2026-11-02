@@ -135,11 +135,11 @@ async function executeMongoQuery(db, sql, params = []) {
 
     if (upper.startsWith('SELECT')) {
       // Admin user count stats
-      if (upper.includes('COUNT(*)') && upper.includes('ROLE =')) {
+      if (upper.includes('COUNT(*)')) {
         const total = await col.countDocuments();
         const students = await col.countDocuments({ role: 'student' });
         const staff = await col.countDocuments({ role: { $in: ['librarian', 'admin'] } });
-        const res = [{ total_users: total, student_count: students, staff_count: staff }];
+        const res = [{ count: total, total_users: total, student_count: students, staff_count: staff }];
         res.insertId = 0;
         return res;
       }
