@@ -999,7 +999,7 @@ async function executeMongoQuery(db, sql, params = []) {
             }
           },
           { $sort: { id: -1 } },
-          { $limit: 100 }
+          { $limit: 1000 }
         ];
         const docs = await col.aggregate(pipeline).toArray();
         for (const d of docs) {
@@ -1090,7 +1090,7 @@ async function executeMongoQuery(db, sql, params = []) {
             }
           },
           { $sort: { id: -1 } },
-          { $limit: 100 }
+          { $limit: 1000 }
         ];
         const docs = await col.aggregate(pipeline).toArray();
         for (const d of docs) {
@@ -1112,7 +1112,7 @@ async function executeMongoQuery(db, sql, params = []) {
       }
 
       // 6. Generic list
-      const docs = await col.find({}).sort({ id: -1 }).limit(200).toArray();
+      const docs = await col.find({}).sort({ id: -1 }).limit(1000).toArray();
       for (const d of docs) {
         if (d.created_at) d.created_at = formatDateTime(d.created_at);
         if (d.read_at) d.read_at = formatDateTime(d.read_at);
@@ -1250,9 +1250,61 @@ async function executeMongoQuery(db, sql, params = []) {
     const col = db.collection('audit_logs');
 
     if (upper.startsWith('SELECT')) {
-      const docs = await col.find({}).sort({ id: -1 }).limit(100).toArray();
-      docs.insertId = 0;
-      return docs;
+      const orderDir = (upper.includes('ORDER BY A.ID ASC') || upper.includes('ORDER BY ID ASC') || upper.includes('ORDER BY CREATED_AT ASC') || upper.includes('ASC')) ? 1 : -1;
+      const limitMatch = normalized.match(/LIMIT\s+(\d+)/i);
+      const limitVal = limitMatch ? parseInt(limitMatch[1], 10) : 1000;
+
+      const pipeline = [
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'user_id',
+            foreignField: 'id',
+            as: 'user'
+          }
+        },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            _id: 0,
+            id: '$id',
+            action: '$action',
+            details: { $ifNull: ['$details', ''] },
+            created_at: {
+              $cond: {
+                if: { $ne: [{ $type: '$created_at' }, 'missing'] },
+                then: {
+                  $dateToString: {
+                    format: '%Y-%m-%d %H:%M',
+                    date: {
+                      $cond: {
+                        if: { $eq: [{ $type: '$created_at' }, 'date'] },
+                        then: '$created_at',
+                        else: { $toDate: '$created_at' }
+                      }
+                    }
+                  }
+                },
+                else: '2026-10-31 16:09'
+              }
+            },
+            actor_name: { $ifNull: ['$user.name', '$user_name', 'System'] },
+            actor_role: { $ifNull: ['$user.role', 'admin'] }
+          }
+        },
+        { $sort: { id: orderDir } },
+        { $limit: limitVal }
+      ];
+
+      try {
+        const docs = await col.aggregate(pipeline).toArray();
+        docs.insertId = 0;
+        return docs;
+      } catch (e) {
+        const docs = await col.find({}).sort({ id: orderDir }).limit(limitVal).toArray();
+        docs.insertId = 0;
+        return docs;
+      }
     }
 
     if (upper.startsWith('INSERT')) {

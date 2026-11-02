@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
   getAdminStats, 
@@ -60,6 +60,23 @@ export default function AdminDashboard() {
   // Audit logs state
   const [auditLogs, setAuditLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
+  const [logSortOrder, setLogSortOrder] = useState('latest');
+  const [userSortOrder, setUserSortOrder] = useState('latest');
+
+  // Sorted users (Latest / Oldest / Name)
+  const sortedUsers = useMemo(() => {
+    const list = [...users];
+    if (userSortOrder === 'latest') return list.sort((a, b) => (b.id || 0) - (a.id || 0));
+    if (userSortOrder === 'oldest') return list.sort((a, b) => (a.id || 0) - (b.id || 0));
+    return list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [users, userSortOrder]);
+
+  // Sorted audit logs (Latest / Oldest)
+  const sortedAuditLogs = useMemo(() => {
+    const list = [...auditLogs];
+    if (logSortOrder === 'oldest') return list.sort((a, b) => (a.id || 0) - (b.id || 0));
+    return list.sort((a, b) => (b.id || 0) - (a.id || 0));
+  }, [auditLogs, logSortOrder]);
 
   // Toast
   const [toast, setToast] = useState(null);
@@ -583,13 +600,23 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
                 </div>
 
                 <div className="d-flex align-items-center gap-2">
+                  <select
+                    className="form-select form-select-sm rounded-pill px-3"
+                    value={userSortOrder}
+                    onChange={e => setUserSortOrder(e.target.value)}
+                    style={{ width: '155px' }}
+                  >
+                    <option value="latest">Sort: Latest First</option>
+                    <option value="oldest">Sort: Oldest First</option>
+                    <option value="name">Sort: Name (A-Z)</option>
+                  </select>
                   <input
                     type="text"
                     className="form-control form-control-sm rounded-pill px-3"
                     placeholder="Search by name, email, roll no..."
                     value={searchUser}
                     onChange={e => setSearchUser(e.target.value)}
-                    style={{ width: '240px' }}
+                    style={{ width: '220px' }}
                   />
                   <button
                     type="button"
@@ -621,7 +648,7 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
                       </tr>
                     </thead>
                     <tbody>
-                      {users.map(u => (
+                      {sortedUsers.map(u => (
                         <tr key={u.id}>
                           <td>
                             <div className="fw-bold text-navy-900">{u.name}</div>
@@ -818,11 +845,25 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
              ============================================================== */}
           {activeTab === 'audit' && (
             <div>
-              <div className="mb-4">
-                <h3 className="fw-bold text-navy-900 mb-1" style={{ letterSpacing: '-0.02em' }}>
-                  Institutional Audit Trail ({auditLogs.length} Events)
-                </h3>
-                <p className="text-secondary small mb-0">Tamper-evident system activity log for administrative auditing.</p>
+              <div className="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
+                <div>
+                  <h3 className="fw-bold text-navy-900 mb-1" style={{ letterSpacing: '-0.02em' }}>
+                    Institutional Audit Trail ({auditLogs.length} Events)
+                  </h3>
+                  <p className="text-secondary small mb-0">Tamper-evident system activity log for administrative auditing.</p>
+                </div>
+
+                <div className="d-flex align-items-center gap-2">
+                  <select
+                    className="form-select form-select-sm rounded-pill px-3"
+                    value={logSortOrder}
+                    onChange={e => setLogSortOrder(e.target.value)}
+                    style={{ width: '165px' }}
+                  >
+                    <option value="latest">Sort: Latest Events</option>
+                    <option value="oldest">Sort: Oldest Events</option>
+                  </select>
+                </div>
               </div>
 
               {loadingLogs ? (
@@ -842,7 +883,7 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
                       </tr>
                     </thead>
                     <tbody>
-                      {auditLogs.map(log => (
+                      {sortedAuditLogs.map(log => (
                         <tr key={log.id}>
                           <td><span className="text-muted small">{log.created_at}</span></td>
                           <td><span className="badge bg-secondary px-2.5 py-1 rounded-pill small">{log.action}</span></td>

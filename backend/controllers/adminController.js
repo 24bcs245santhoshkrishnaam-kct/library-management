@@ -347,6 +347,8 @@ async function updatePolicy(req, res) {
 
 async function getAuditLogs(req, res) {
   try {
+    const order = (req.query.order || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+    const limit = parseInt(req.query.limit, 10) || 500;
     const logs = await db.query(`
       SELECT 
         a.id, 
@@ -357,8 +359,8 @@ async function getAuditLogs(req, res) {
         COALESCE(u.role, 'admin') as actor_role
       FROM audit_logs a
       LEFT JOIN users u ON a.user_id = u.id
-      ORDER BY a.created_at DESC
-      LIMIT 100
+      ORDER BY a.id ${order}
+      LIMIT ${limit}
     `);
     res.json({ success: true, count: logs.length, logs });
   } catch (err) {
