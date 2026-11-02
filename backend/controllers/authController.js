@@ -38,14 +38,6 @@ async function login(req, res) {
       });
     }
 
-    // Role check if user selected a role on the UI
-    if (requestedRole && user.role.toLowerCase() !== requestedRole.toLowerCase()) {
-      return res.status(403).json({
-        error: 'Role Mismatch',
-        message: `Account is registered as "${user.role.toUpperCase()}". You cannot log in through the ${requestedRole.toUpperCase()} portal.`
-      });
-    }
-
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) {
       return res.status(401).json({ 

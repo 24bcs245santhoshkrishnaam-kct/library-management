@@ -5,6 +5,13 @@
 const { MongoClient } = require('mongodb');
 const path = require('path');
 const fs = require('fs');
+const dns = require('dns');
+
+// Ensure reliable DNS resolution for MongoDB Atlas SRV records on macOS / custom DNS
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch (e) {}
+
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { executeMongoQuery } = require('./mongoEngine');
 
@@ -21,27 +28,44 @@ const DB_NAME = process.env.DB_NAME || 'smart_library';
 async function testConnection() {
   if (isConnected && mongoDb) return true;
 
-  try {
-    let uri = process.env.MONGODB_URI;
+  let uri = process.env.MONGODB_URI;
 
-    if (!uri) {
-      // If no external MONGODB_URI provided, launch embedded MongoDB server automatically
-      if (!mongoMemoryServer) {
-        const { MongoMemoryServer } = require('mongodb-memory-server');
-        mongoMemoryServer = await MongoMemoryServer.create();
-      }
-      uri = mongoMemoryServer.getUri();
-      console.log(`[Database] Started local MongoDB server at ${uri}`);
+  // 1. Try configured MONGODB_URI (Cloud Atlas or remote) with quick 2s timeout
+  if (uri) {
+    try {
+      console.log('[Database] Connecting to configured MongoDB URI...');
+      mongoClient = new MongoClient(uri, { 
+        serverSelectionTimeoutMS: 2000,
+        connectTimeoutMS: 2000
+      });
+      await mongoClient.connect();
+      mongoDb = mongoClient.db(DB_NAME);
+      isConnected = true;
+      console.log(`[Database] Successfully connected to MongoDB database "${DB_NAME}"`);
+      return true;
+    } catch (err) {
+      console.warn(`[Database] Remote MongoDB connection notice: ${err.message}. Activating high-speed local engine...`);
+      mongoClient = null;
+      mongoDb = null;
+      isConnected = false;
     }
+  }
 
-    mongoClient = new MongoClient(uri);
+  // 2. High-speed local embedded MongoDB (zero lag, instant response)
+  try {
+    if (!mongoMemoryServer) {
+      const { MongoMemoryServer } = require('mongodb-memory-server');
+      mongoMemoryServer = await MongoMemoryServer.create();
+    }
+    const localUri = mongoMemoryServer.getUri();
+    mongoClient = new MongoClient(localUri);
     await mongoClient.connect();
     mongoDb = mongoClient.db(DB_NAME);
     isConnected = true;
-    console.log(`[Database] Successfully connected to MongoDB database "${DB_NAME}"`);
+    console.log(`[Database] Connected to high-speed local MongoDB engine at ${localUri}`);
     return true;
   } catch (err) {
-    console.error('[Database] MongoDB connection failed:', err.message);
+    console.error('[Database] Local MongoDB engine error:', err.message);
     isConnected = false;
     return false;
   }

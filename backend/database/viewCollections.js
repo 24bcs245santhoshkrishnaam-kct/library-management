@@ -187,3 +187,4 @@ main().catch(err => {
   console.error('Error viewing collections:', err);
   process.exit(1);
 });
+
