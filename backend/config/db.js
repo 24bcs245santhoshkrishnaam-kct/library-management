@@ -19,7 +19,9 @@ let mongoClient = null;
 let mongoDb = null;
 let mongoMemoryServer = null;
 let isConnected = false;
+let isInitialized = false;
 
+const DEFAULT_ATLAS_URI = 'mongodb+srv://24bcs245santhoshkrishnaam_db_user:MSK40215656@cluster0.rg5lyb8.mongodb.net/smart_library?retryWrites=true&w=majority';
 const DB_NAME = process.env.DB_NAME || 'smart_library';
 
 /**
@@ -28,9 +30,9 @@ const DB_NAME = process.env.DB_NAME || 'smart_library';
 async function testConnection() {
   if (isConnected && mongoDb) return true;
 
-  let uri = process.env.MONGODB_URI;
+  let uri = process.env.MONGODB_URI || DEFAULT_ATLAS_URI;
 
-  // 1. Try configured MONGODB_URI (Cloud Atlas or remote) with quick 2s timeout
+  // 1. Try configured MONGODB_URI (Cloud Atlas or remote) with 8s timeout
   if (uri) {
     try {
       console.log('[Database] Connecting to configured MongoDB URI...');
@@ -163,6 +165,7 @@ async function initTables() {
     await mongoDb.collection('notifications').createIndex({ id: 1 }, { unique: true, background: true });
     await mongoDb.collection('policies').createIndex({ policy_key: 1 }, { unique: true, background: true });
 
+    isInitialized = true;
     console.log('[Database] MongoDB collections, indexes, and full dataset verified and ready.');
   } catch (err) {
     console.warn('[Database] Collection initialization notice:', err.message);
@@ -175,6 +178,8 @@ async function initTables() {
 async function query(sql, params = []) {
   if (!isConnected || !mongoDb) {
     await testConnection();
+  }
+  if (!isInitialized && mongoDb) {
     await initTables();
   }
   return await executeMongoQuery(mongoDb, sql, params);
@@ -186,6 +191,8 @@ async function query(sql, params = []) {
 async function getConnection() {
   if (!isConnected || !mongoDb) {
     await testConnection();
+  }
+  if (!isInitialized && mongoDb) {
     await initTables();
   }
 

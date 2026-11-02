@@ -11,7 +11,6 @@ module.exports = async (req, res) => {
   if (!isConnected) {
     try {
       await db.testConnection();
-      await db.initTables();
       isConnected = true;
     } catch (err) {
       console.error('[Vercel DB Connection Error]:', err.message);

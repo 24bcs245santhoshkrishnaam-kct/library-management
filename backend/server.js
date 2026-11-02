@@ -25,7 +25,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
 // Ensure all API endpoints return fresh live responses immediately without browser caching
-app.use('/api', (req, res, next) => {
+app.use(['/api', '/auth', '/books', '/ai', '/loans', '/sms', '/admin', '/health'], (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
@@ -33,16 +33,16 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/books', bookRoutes);
-app.use('/api/ai', aiRoutes);
-app.use('/api/loans', loanRoutes);
-app.use('/api/sms', smsRoutes);
-app.use('/api/admin', adminRoutes);
+// API Routes - Mounted with and without /api prefix for seamless Vercel serverless rewrite compatibility
+app.use(['/api/auth', '/auth'], authRoutes);
+app.use(['/api/books', '/books'], bookRoutes);
+app.use(['/api/ai', '/ai'], aiRoutes);
+app.use(['/api/loans', '/loans'], loanRoutes);
+app.use(['/api/sms', '/sms'], smsRoutes);
+app.use(['/api/admin', '/admin'], adminRoutes);
 
 // System Health Check
-app.get('/api/health', (req, res) => {
+app.get(['/api/health', '/health'], (req, res) => {
   res.json({
     status: 'ok',
     system: 'KCT AI Smart Library',
@@ -61,7 +61,9 @@ const frontendDistPath = path.join(__dirname, '../frontend/dist');
 if (fs.existsSync(frontendDistPath)) {
   app.use(express.static(frontendDistPath));
   app.get('*', (req, res, next) => {
-    if (req.originalUrl.startsWith('/api')) {
+    const isApiRequest = ['/api', '/auth', '/books', '/ai', '/loans', '/sms', '/admin', '/health']
+      .some(prefix => req.originalUrl.startsWith(prefix));
+    if (isApiRequest) {
       return next();
     }
     res.sendFile(path.join(frontendDistPath, 'index.html'));
@@ -69,7 +71,7 @@ if (fs.existsSync(frontendDistPath)) {
 }
 
 // Centralized 404 handler for unknown API endpoints
-app.use('/api/*', (req, res) => {
+app.use(['/api/*', '/auth/*', '/books/*', '/ai/*', '/loans/*', '/sms/*', '/admin/*'], (req, res) => {
   res.status(404).json({
     error: 'Endpoint Not Found',
     message: `Cannot ${req.method} ${req.originalUrl}`

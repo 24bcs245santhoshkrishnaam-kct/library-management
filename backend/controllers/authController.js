@@ -31,7 +31,7 @@ async function login(req, res) {
     const user = rows[0];
 
     // Check account status
-    if (user.account_status === 'suspended') {
+    if (user.account_status && user.account_status.toLowerCase() === 'suspended') {
       return res.status(403).json({
         error: 'Account Suspended',
         message: 'Your library account has been suspended. Please contact the administrator.'
