@@ -110,15 +110,22 @@ async function executeMongoQuery(db, sql, params = []) {
       }
 
       const nextId = await getNextSequenceValue(db, 'policies');
+      const updateFields = {
+        policy_value: String(policyValue),
+        updated_at: new Date()
+      };
+      const setOnInsert = { id: nextId };
+      if (description) {
+        updateFields.description = description;
+      } else {
+        setOnInsert.description = `Policy for ${policyKey}`;
+      }
+
       await col.updateOne(
         { policy_key: policyKey },
         { 
-          $set: { 
-            policy_value: policyValue, 
-            description: description,
-            updated_at: new Date()
-          },
-          $setOnInsert: { id: nextId }
+          $set: updateFields,
+          $setOnInsert: setOnInsert
         },
         { upsert: true }
       );
@@ -282,26 +289,29 @@ async function executeMongoQuery(db, sql, params = []) {
     if (upper.startsWith('UPDATE')) {
       const userId = Number(params[params.length - 1]);
       const updateFields = {};
-      if (upper.includes('EMAIL = COALESCE') || (upper.includes('NAME = COALESCE') && upper.includes('ROLE = COALESCE'))) {
-        // adminController.updateUser: [name, email, role, department, contact_number, account_status, student_id, userId]
-        if (params[0] !== null && params[0] !== undefined) updateFields.name = params[0];
-        if (params[1] !== null && params[1] !== undefined) updateFields.email = params[1];
-        if (params[2] !== null && params[2] !== undefined) updateFields.role = params[2];
-        if (params[3] !== null && params[3] !== undefined) updateFields.department = params[3];
-        if (params[4] !== null && params[4] !== undefined) updateFields.contact_number = params[4];
-        if (params[5] !== null && params[5] !== undefined) updateFields.account_status = params[5];
-        if (params[6] !== null && params[6] !== undefined) updateFields.student_id = params[6];
-      } else if (upper.includes('NAME = COALESCE')) {
-        // authController.updateProfile: [name, contact_number, department, req.user.id]
-        if (params[0] !== null && params[0] !== undefined) updateFields.name = params[0];
-        if (params[1] !== null && params[1] !== undefined) updateFields.contact_number = params[1];
-        if (params[2] !== null && params[2] !== undefined) updateFields.department = params[2];
-      } else {
-        if (params[0] !== null && params[0] !== undefined) updateFields.account_status = params[0];
-        if (params[1] !== null && params[1] !== undefined) updateFields.contact_number = params[1];
-        if (params[2] !== null && params[2] !== undefined) updateFields.department = params[2];
+
+      const setMatch = sql.match(/SET\s+([\s\S]+?)\s+WHERE/i);
+      if (setMatch) {
+        const parts = setMatch[1].split(/,(?![^(]*\))/);
+        parts.forEach((part, idx) => {
+          const colMatch = part.match(/([a-zA-Z0-9_]+)\s*=/);
+          if (colMatch && idx < params.length - 1) {
+            const val = params[idx];
+            if (val !== undefined && val !== null) {
+              updateFields[colMatch[1].toLowerCase()] = val;
+            }
+          }
+        });
       }
-      await col.updateOne({ id: userId }, { $set: updateFields });
+
+      // Safety check if no fields matched
+      if (Object.keys(updateFields).length === 0 && params.length >= 2) {
+        if (params[0] !== null && params[0] !== undefined) updateFields.name = params[0];
+      }
+
+      if (Object.keys(updateFields).length > 0) {
+        await col.updateOne({ id: userId }, { $set: updateFields });
+      }
       const res = [{ affectedRows: 1 }];
       res.insertId = 0;
       res.affectedRows = 1;
@@ -507,16 +517,29 @@ async function executeMongoQuery(db, sql, params = []) {
       // General book update
       const bookId = Number(params[params.length - 1]);
       const updateFields = {};
-      if (params[0] !== undefined) updateFields.title = params[0];
-      if (params[1] !== undefined) updateFields.author = params[1];
-      if (params[2] !== undefined) updateFields.department = params[2];
-      if (params[3] !== undefined) updateFields.category = params[3];
-      if (params[4] !== undefined) updateFields.isbn = params[4];
-      if (params[5] !== undefined) updateFields.description = params[5];
-      if (params[6] !== undefined) updateFields.shelf_location = params[6];
-      if (params[7] !== undefined) updateFields.total_copies = Number(params[7]);
 
-      await col.updateOne({ id: bookId }, { $set: updateFields });
+      const setMatch = sql.match(/SET\s+([\s\S]+?)\s+WHERE/i);
+      if (setMatch) {
+        const parts = setMatch[1].split(/,(?![^(]*\))/);
+        parts.forEach((part, idx) => {
+          const colMatch = part.match(/([a-zA-Z0-9_]+)\s*=/);
+          if (colMatch && idx < params.length - 1) {
+            const colName = colMatch[1].toLowerCase();
+            const val = params[idx];
+            if (val !== undefined && val !== null) {
+              if (['total_copies', 'available_copies', 'published_year', 'is_damaged', 'is_lost'].includes(colName)) {
+                updateFields[colName] = Number(val);
+              } else {
+                updateFields[colName] = val;
+              }
+            }
+          }
+        });
+      }
+
+      if (Object.keys(updateFields).length > 0) {
+        await col.updateOne({ id: bookId }, { $set: updateFields });
+      }
       const res = [{ affectedRows: 1 }];
       res.insertId = 0;
       res.affectedRows = 1;
@@ -1234,11 +1257,41 @@ async function executeMongoQuery(db, sql, params = []) {
 
     if (upper.startsWith('INSERT')) {
       const nextId = await getNextSequenceValue(db, 'audit_logs');
+      let userId = null;
+      let userName = 'System';
+      let action = 'GENERAL_ACTION';
+      let details = '';
+
+      if (upper.includes('(USER_ID, USER_NAME, ACTION, DETAILS)')) {
+        userId = Number(params[0]) || null;
+        userName = params[1] || 'System';
+        action = params[2] || 'GENERAL_ACTION';
+        details = params[3] || '';
+      } else if (upper.includes('(USER_ID, USER_NAME') && upper.includes("'UPDATE_POLICY'")) {
+        userId = Number(params[0]) || null;
+        userName = params[1] || 'System';
+        action = 'UPDATE_POLICY';
+        details = params[2] || '';
+      } else if (params.length === 3) {
+        userName = params[0] || 'System';
+        action = params[1] || 'GENERAL_ACTION';
+        details = params[2] || '';
+      } else if (params.length === 2) {
+        action = params[0] || 'GENERAL_ACTION';
+        details = params[1] || '';
+      } else if (params.length === 4) {
+        userId = Number(params[0]) || null;
+        userName = params[1] || 'System';
+        action = params[2] || 'GENERAL_ACTION';
+        details = params[3] || '';
+      }
+
       const doc = {
         id: nextId,
-        user_name: params[0] || 'System',
-        action: params[1] || 'GENERAL_ACTION',
-        details: params[2] || '',
+        user_id: userId,
+        user_name: userName,
+        action: action,
+        details: details,
         created_at: new Date()
       };
       await col.insertOne(doc);

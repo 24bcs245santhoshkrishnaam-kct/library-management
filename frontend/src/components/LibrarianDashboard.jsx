@@ -390,9 +390,19 @@ export default function LibrarianDashboard() {
     e.preventDefault();
     try {
       if (editingBook) {
+        // Immediate optimistic update in local state
+        setInventory(prev => prev.map(b => b.id === editingBook.id ? { ...b, ...bookForm } : b));
         await updateBook(editingBook.id, bookForm);
         setToast({ type: 'success', message: `Book "${bookForm.title}" updated successfully.` });
       } else {
+        const optimisticBook = {
+          id: Date.now(),
+          ...bookForm,
+          available_copies: Number(bookForm.total_copies) || 5,
+          total_copies: Number(bookForm.total_copies) || 5,
+          created_at: new Date().toISOString()
+        };
+        setInventory(prev => [optimisticBook, ...prev]);
         await createBook(bookForm);
         setToast({ type: 'success', message: `Book "${bookForm.title}" added to catalogue.` });
       }
@@ -401,17 +411,21 @@ export default function LibrarianDashboard() {
       await fetchInventory();
     } catch (err) {
       setToast({ type: 'danger', message: err.response?.data?.message || 'Failed to save book' });
+      await fetchInventory();
     }
   };
 
   const handleDeleteBook = async (id, title) => {
     if (!window.confirm(`Are you sure you want to remove "${title}" from the library?`)) return;
+    // Immediate optimistic delete in local state
+    setInventory(prev => prev.filter(b => b.id !== id));
     try {
       await deleteBook(id);
       setToast({ type: 'success', message: `Book removed successfully.` });
       await fetchInventory();
     } catch (err) {
       setToast({ type: 'danger', message: err.response?.data?.message || 'Failed to delete book' });
+      await fetchInventory();
     }
   };
 
