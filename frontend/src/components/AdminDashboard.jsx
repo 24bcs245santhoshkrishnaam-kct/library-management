@@ -166,24 +166,30 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
   // Toggle user account status
   const handleToggleStatus = async (targetUser) => {
     const nextStatus = targetUser.account_status === 'active' ? 'suspended' : 'active';
+    // Immediate UI update
+    setUsers(prev => prev.map(u => u.id === targetUser.id ? { ...u, account_status: nextStatus } : u));
     try {
       await updateAdminUser(targetUser.id, { account_status: nextStatus });
       setToast({ type: 'success', message: `Account for ${targetUser.name} set to ${nextStatus.toUpperCase()}.` });
       await fetchUsers();
     } catch (err) {
       setToast({ type: 'danger', message: err.response?.data?.message || 'Failed to update status' });
+      await fetchUsers();
     }
   };
 
   // Delete user
   const handleDeleteUser = async (targetUser) => {
     if (!window.confirm(`Permanently remove ${targetUser.name} from library users?`)) return;
+    // Immediate UI update
+    setUsers(prev => prev.filter(u => u.id !== targetUser.id));
     try {
       await deleteAdminUser(targetUser.id);
       setToast({ type: 'success', message: `User ${targetUser.name} removed from system.` });
       await Promise.all([fetchUsers(), fetchStats()]);
     } catch (err) {
       setToast({ type: 'danger', message: err.response?.data?.message || 'Failed to delete user' });
+      await fetchUsers();
     }
   };
 
@@ -205,6 +211,19 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
     e.preventDefault();
     if (!editingStudent) return;
     setSavingStudent(true);
+
+    // 1. Instantly reflect the change on the screen (0ms optimistic update)
+    const updatedDetails = {
+      ...editingStudent,
+      name: studentEditForm.name,
+      email: studentEditForm.email,
+      student_id: studentEditForm.student_id,
+      department: studentEditForm.department,
+      contact_number: studentEditForm.contact_number,
+      account_status: studentEditForm.account_status
+    };
+    setUsers(prev => prev.map(u => u.id === editingStudent.id ? updatedDetails : u));
+
     try {
       await updateAdminUser(editingStudent.id, studentEditForm);
       setToast({
@@ -218,6 +237,7 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
         type: 'danger',
         message: err.response?.data?.message || 'Failed to update student details'
       });
+      await fetchUsers();
     } finally {
       setSavingStudent(false);
     }
@@ -231,6 +251,22 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
       const res = await createAdminUser(newUserForm);
       setToast({ type: 'success', message: res.message || 'User created successfully.' });
       setShowAddUserModal(false);
+      // Immediately reflect new user in state
+      const optimisticUser = {
+        id: res.user_id || Date.now(),
+        username: newUserForm.username || newUserForm.email.split('@')[0],
+        name: newUserForm.name,
+        email: newUserForm.email,
+        role: newUserForm.role || 'student',
+        student_id: newUserForm.student_id,
+        department: newUserForm.department || 'General',
+        contact_number: newUserForm.contact_number,
+        account_status: 'active',
+        total_loans: 0,
+        active_loans: 0,
+        created_at: new Date().toISOString().split('T')[0]
+      };
+      setUsers(prev => [optimisticUser, ...prev]);
       await Promise.all([fetchUsers(), fetchStats()]);
     } catch (err) {
       setToast({ type: 'danger', message: err.response?.data?.message || 'Failed to create user' });

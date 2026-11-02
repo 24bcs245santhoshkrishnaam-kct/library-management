@@ -167,6 +167,58 @@ async function executeMongoQuery(db, sql, params = []) {
         return res;
       }
 
+      // Admin / Users query with joins or filters (LEFT JOIN transactions or WHERE 1=1)
+      if (upper.includes('LEFT JOIN TRANSACTIONS') || upper.includes('FROM USERS U') || (upper.includes('WHERE 1=1') && upper.includes('USERS'))) {
+        let matchFilter = {};
+        let pIdx = 0;
+        if (upper.includes('U.ROLE = ?')) {
+          matchFilter.role = params[pIdx++];
+        } else if (upper.includes('WHERE ROLE = ?')) {
+          matchFilter.role = params[pIdx++];
+        }
+        if (upper.includes('U.DEPARTMENT = ?')) {
+          matchFilter.department = params[pIdx++];
+        }
+        if (upper.includes('U.ACCOUNT_STATUS = ?')) {
+          matchFilter.account_status = params[pIdx++];
+        }
+        if (upper.includes('LIKE ?')) {
+          const s1 = String(params[pIdx++] || '').replace(/%/g, '');
+          pIdx++; // s2
+          pIdx++; // s3
+          const sReg = new RegExp(escapeRegex(s1), 'i');
+          matchFilter.$or = [
+            { name: sReg },
+            { email: sReg },
+            { student_id: sReg }
+          ];
+        }
+
+        const docs = await col.find(matchFilter).sort({ role: -1, name: 1 }).toArray();
+        const txCol = db.collection('transactions');
+        const allTxs = await txCol.find({}).toArray();
+        const enriched = docs.map(u => {
+          const userTxs = allTxs.filter(t => t.user_id === u.id);
+          return {
+            id: u.id,
+            username: u.username,
+            name: u.name,
+            email: u.email,
+            role: u.role,
+            student_id: u.student_id,
+            department: u.department,
+            contact_number: u.contact_number,
+            account_status: u.account_status,
+            is_demo: u.is_demo,
+            created_at: u.created_at ? (u.created_at instanceof Date ? u.created_at.toISOString().slice(0, 10) : String(u.created_at).slice(0, 10)) : '2026-10-31',
+            total_loans: userTxs.length,
+            active_loans: userTxs.filter(t => t.status === 'Issued').length
+          };
+        });
+        enriched.insertId = 0;
+        return enriched;
+      }
+
       // Find users by role
       if (upper.includes('WHERE ROLE = ?') || upper.includes("WHERE ROLE = 'STUDENT'")) {
         const role = params[0] || 'student';
@@ -186,6 +238,24 @@ async function executeMongoQuery(db, sql, params = []) {
     }
 
     if (upper.startsWith('INSERT')) {
+      const username = params[0];
+      const email = params[3];
+      // Check for existing user if ON DUPLICATE KEY UPDATE is used
+      if (upper.includes('ON DUPLICATE KEY UPDATE') && (username || email)) {
+        const existing = await col.findOne({ $or: [{ username }, { email }] });
+        if (existing) {
+          const updateFields = {};
+          if (params[2] !== undefined && params[2] !== null) updateFields.name = params[2];
+          if (params[6] !== undefined && params[6] !== null) updateFields.department = params[6];
+          if (params[7] !== undefined && params[7] !== null) updateFields.contact_number = params[7];
+          await col.updateOne({ _id: existing._id }, { $set: updateFields });
+          const res = [{ affectedRows: 1, insertId: existing.id }];
+          res.insertId = existing.id;
+          res.affectedRows = 1;
+          return res;
+        }
+      }
+
       const nextId = await getNextSequenceValue(db, 'users');
       // Format parameters into document
       const doc = {
@@ -212,7 +282,17 @@ async function executeMongoQuery(db, sql, params = []) {
     if (upper.startsWith('UPDATE')) {
       const userId = Number(params[params.length - 1]);
       const updateFields = {};
-      if (normalized.includes('name = COALESCE(?, name)')) {
+      if (upper.includes('EMAIL = COALESCE') || (upper.includes('NAME = COALESCE') && upper.includes('ROLE = COALESCE'))) {
+        // adminController.updateUser: [name, email, role, department, contact_number, account_status, student_id, userId]
+        if (params[0] !== null && params[0] !== undefined) updateFields.name = params[0];
+        if (params[1] !== null && params[1] !== undefined) updateFields.email = params[1];
+        if (params[2] !== null && params[2] !== undefined) updateFields.role = params[2];
+        if (params[3] !== null && params[3] !== undefined) updateFields.department = params[3];
+        if (params[4] !== null && params[4] !== undefined) updateFields.contact_number = params[4];
+        if (params[5] !== null && params[5] !== undefined) updateFields.account_status = params[5];
+        if (params[6] !== null && params[6] !== undefined) updateFields.student_id = params[6];
+      } else if (upper.includes('NAME = COALESCE')) {
+        // authController.updateProfile: [name, contact_number, department, req.user.id]
         if (params[0] !== null && params[0] !== undefined) updateFields.name = params[0];
         if (params[1] !== null && params[1] !== undefined) updateFields.contact_number = params[1];
         if (params[2] !== null && params[2] !== undefined) updateFields.department = params[2];
