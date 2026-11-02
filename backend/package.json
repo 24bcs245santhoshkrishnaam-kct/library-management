@@ -8,7 +8,8 @@
     "start": "node server.js",
     "seed": "node database/seed.js",
     "test": "node test/test-all.js && node test/test-e2e-http.js",
-    "view-db": "node database/viewCollections.js"
+    "view-db": "node database/viewCollections.js",
+    "sync-atlas": "node database/connectAtlas.js"
   },
   "dependencies": {
     "alasql": "^4.22.0",
