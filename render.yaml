@@ -13,17 +13,10 @@ services:
         value: production
       - key: BORROWING_MODE
         value: testing
-      - key: DB_HOST
-        sync: false
-      - key: DB_PORT
-        value: "3306"
-      - key: DB_USER
-        sync: false
-      - key: DB_PASSWORD
+      - key: MONGODB_URI
         sync: false
       - key: DB_NAME
-        sync: false
-      - key: DB_SSL
-        value: "true"
+        value: smart_library
       - key: JWT_SECRET
         generateValue: true
+

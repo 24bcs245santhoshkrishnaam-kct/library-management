@@ -35,8 +35,11 @@ app.use('/api/admin', adminRoutes);
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    system: 'Smart Library Management System',
+    system: 'KCT AI Smart Library',
+    institution: 'Kumaraguru College of Technology (KCT)',
+    database: 'mongodb',
     timestamp: new Date().toISOString(),
+    mongodb_connected: db.isConnected,
     mysql_connected: db.isConnected,
     ai_provider: process.env.AI_PROVIDER || 'gemini',
     ai_key_configured: Boolean(process.env.AI_API_KEY && process.env.AI_API_KEY.length > 0)

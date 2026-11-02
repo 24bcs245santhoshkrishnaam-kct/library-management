@@ -1,266 +1,189 @@
-const mysql = require('mysql2/promise');
+/**
+ * Unified Database Configuration for KCT AI Smart Library
+ * MongoDB Engine with full data persistence and automated seeding.
+ */
+const { MongoClient } = require('mongodb');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+const { executeMongoQuery } = require('./mongoEngine');
 
-const config = {
-  host: process.env.DB_HOST || '127.0.0.1',
-  port: parseInt(process.env.DB_PORT, 10) || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'smart_library',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  dateStrings: true
-};
-
-// Check if socket path is provided and exists
-if (process.env.DB_SOCKET) {
-  config.socketPath = process.env.DB_SOCKET;
-}
-
-// Enable SSL if required by cloud MySQL provider (e.g. Aiven, TiDB, PlanetScale, Clever Cloud)
-if (process.env.DB_SSL === 'true') {
-  config.ssl = { rejectUnauthorized: false };
-}
-
-let pool;
+let mongoClient = null;
+let mongoDb = null;
+let mongoMemoryServer = null;
 let isConnected = false;
 
-function getPool() {
-  if (!pool) {
-    if (process.env.DATABASE_URL) {
-      pool = mysql.createPool(process.env.DATABASE_URL);
-    } else {
-      pool = mysql.createPool(config);
-    }
-  }
-  return pool;
-}
+const DB_NAME = process.env.DB_NAME || 'smart_library';
 
-// In-memory fallback storage if MySQL server is completely unavailable
-const inMemoryStore = {
-  users: [],
-  books: [],
-  transactions: []
-};
-
+/**
+ * Initialize connection to MongoDB (Cloud Atlas or Local/Embedded)
+ */
 async function testConnection() {
+  if (isConnected && mongoDb) return true;
+
   try {
-    const currentPool = getPool();
-    const conn = await currentPool.getConnection();
+    let uri = process.env.MONGODB_URI;
+
+    if (!uri) {
+      // If no external MONGODB_URI provided, launch embedded MongoDB server automatically
+      if (!mongoMemoryServer) {
+        const { MongoMemoryServer } = require('mongodb-memory-server');
+        mongoMemoryServer = await MongoMemoryServer.create();
+      }
+      uri = mongoMemoryServer.getUri();
+      console.log(`[Database] Started local MongoDB server at ${uri}`);
+    }
+
+    mongoClient = new MongoClient(uri);
+    await mongoClient.connect();
+    mongoDb = mongoClient.db(DB_NAME);
     isConnected = true;
-    conn.release();
-    console.log(`[Database] Successfully connected to MySQL database "${config.database}"`);
+    console.log(`[Database] Successfully connected to MongoDB database "${DB_NAME}"`);
     return true;
   } catch (err) {
-    console.warn(`[Database] MySQL connection notice: ${err.message}.`);
+    console.error('[Database] MongoDB connection failed:', err.message);
     isConnected = false;
     return false;
   }
 }
 
-async function query(sql, params = []) {
-  if (isConnected) {
-    try {
-      const [rows] = await getPool().query(sql, params);
-      return rows;
-    } catch (err) {
-      console.error('[Database Query Error]:', err.message);
-      throw err;
-    }
-  } else {
-    // Attempt reconnect once
-    const reconnected = await testConnection();
-    if (reconnected) {
-      const [rows] = await getPool().query(sql, params);
-      return rows;
-    }
-    throw new Error('MySQL Database connection is not available');
-  }
-}
-
-async function getConnection() {
-  return await getPool().getConnection();
-}
-
+/**
+ * Initialize Collections, Indexes, and Import full data from MySQL backup if needed
+ */
 async function initTables() {
+  await testConnection();
+  if (!mongoDb) return;
+
   try {
-    const conn = await getPool().getConnection();
-    
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(100) NOT NULL UNIQUE,
-        password_hash VARCHAR(255) NOT NULL,
-        name VARCHAR(150) NOT NULL,
-        email VARCHAR(150) NOT NULL UNIQUE,
-        role ENUM('student', 'librarian', 'admin') NOT NULL DEFAULT 'student',
-        student_id VARCHAR(50) UNIQUE NULL,
-        department VARCHAR(100) NULL DEFAULT 'General Engineering',
-        contact_number VARCHAR(30) NULL DEFAULT '+91 98765 43210',
-        account_status ENUM('Active', 'Suspended', 'Pending') NOT NULL DEFAULT 'Active',
-        is_demo BOOLEAN NOT NULL DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_email (email),
-        INDEX idx_role (role)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    `);
+    const collections = ['users', 'books', 'transactions', 'notifications', 'policies', 'audit_logs', '_counters'];
+    const existingCollections = await mongoDb.listCollections().toArray();
+    const existingNames = existingCollections.map(c => c.name);
 
-    // Safely add any missing columns to users
-    try { await conn.query("ALTER TABLE users ADD COLUMN department VARCHAR(100) NULL DEFAULT 'General Engineering'"); } catch (e) {}
-    try { await conn.query("ALTER TABLE users ADD COLUMN contact_number VARCHAR(30) NULL DEFAULT '+91 98765 43210'"); } catch (e) {}
-    try { await conn.query("ALTER TABLE users ADD COLUMN account_status ENUM('Active', 'Suspended', 'Pending') NOT NULL DEFAULT 'Active'"); } catch (e) {}
-    try { await conn.query("ALTER TABLE users ADD COLUMN is_demo BOOLEAN NOT NULL DEFAULT FALSE"); } catch (e) {}
+    for (const colName of collections) {
+      if (!existingNames.includes(colName)) {
+        await mongoDb.createCollection(colName);
+      }
+    }
 
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS books (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        title VARCHAR(255) NOT NULL,
-        author VARCHAR(255) NOT NULL,
-        department VARCHAR(100) NOT NULL DEFAULT 'CSE',
-        category VARCHAR(100) NOT NULL,
-        publisher VARCHAR(150) NULL,
-        published_year INT,
-        isbn VARCHAR(50) UNIQUE,
-        description TEXT,
-        cover_image VARCHAR(500) NULL,
-        total_copies INT NOT NULL DEFAULT 3,
-        available_copies INT NOT NULL DEFAULT 3,
-        shelf_location VARCHAR(50),
-        is_damaged INT NOT NULL DEFAULT 0,
-        is_lost INT NOT NULL DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_department (department),
-        INDEX idx_category (category),
-        INDEX idx_author (author),
-        INDEX idx_title (title)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    `);
+    // Check if seeding is needed (if books or users are empty)
+    const booksCount = await mongoDb.collection('books').countDocuments();
+    const usersCount = await mongoDb.collection('users').countDocuments();
 
-    // Safely add missing columns to books
-    try { await conn.query("ALTER TABLE books ADD COLUMN department VARCHAR(100) NOT NULL DEFAULT 'CSE'"); } catch (e) {}
-    try { await conn.query("ALTER TABLE books ADD COLUMN publisher VARCHAR(150) NULL"); } catch (e) {}
-    try { await conn.query("ALTER TABLE books ADD COLUMN cover_image VARCHAR(500) NULL"); } catch (e) {}
-    try { await conn.query("ALTER TABLE books ADD COLUMN is_damaged INT NOT NULL DEFAULT 0"); } catch (e) {}
-    try { await conn.query("ALTER TABLE books ADD COLUMN is_lost INT NOT NULL DEFAULT 0"); } catch (e) {}
-    try { await conn.query("ALTER TABLE books ADD COLUMN language VARCHAR(50) NOT NULL DEFAULT 'English'"); } catch (e) {}
-    try { await conn.query("ALTER TABLE books ADD COLUMN alternate_titles TEXT NULL"); } catch (e) {}
-    try { await conn.query("ALTER TABLE books ADD COLUMN subject_keywords TEXT NULL"); } catch (e) {}
-    try { await conn.query("ALTER TABLE books ADD COLUMN skills_covered TEXT NULL"); } catch (e) {}
-    try { await conn.query("ALTER TABLE books ADD COLUMN career_paths TEXT NULL"); } catch (e) {}
-    try { await conn.query("ALTER TABLE books ADD COLUMN catalog_collection VARCHAR(100) NOT NULL DEFAULT 'Engineering'"); } catch (e) {}
-    try { await conn.query("ALTER TABLE books ADD COLUMN metadata_source VARCHAR(150) NULL"); } catch (e) {}
+    if (booksCount === 0 || usersCount === 0) {
+      console.log('[Database] Importing initial MySQL data into MongoDB collections...');
+      const dumpPath = path.join(__dirname, '../database/backups/mysql_full_export.json');
+      if (fs.existsSync(dumpPath)) {
+        const dump = JSON.parse(fs.readFileSync(dumpPath, 'utf8'));
 
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS transactions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        book_id INT NOT NULL,
-        user_id INT NOT NULL,
-        issue_date DATE NOT NULL,
-        due_date DATE NOT NULL,
-        return_date DATE NULL,
-        status ENUM('Issued', 'Returned') NOT NULL DEFAULT 'Issued',
-        fine_amount DECIMAL(8,2) NOT NULL DEFAULT 0.00,
-        last_sms_sent_at DATETIME NULL,
-        sms_status ENUM('None', 'Sent', 'Delivered', 'Failed', 'Pending') NOT NULL DEFAULT 'None',
-        sms_count INT NOT NULL DEFAULT 0,
-        notes TEXT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        INDEX idx_user_status (user_id, status),
-        INDEX idx_book (book_id),
-        INDEX idx_due_date (due_date)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    `);
+        for (const table of Object.keys(dump)) {
+          if (dump[table] && dump[table].length > 0) {
+            const col = mongoDb.collection(table);
+            const count = await col.countDocuments();
+            if (count === 0) {
+              const records = dump[table].map(item => {
+                const rec = { ...item };
+                if (table === 'transactions') {
+                  if (rec.issue_date) rec.issue_date = new Date(rec.issue_date);
+                  if (rec.due_date) rec.due_date = new Date(rec.due_date);
+                  if (rec.return_date) rec.return_date = new Date(rec.return_date);
+                  if (rec.created_at) rec.created_at = new Date(rec.created_at);
+                  if (rec.last_auto_reminder_at) rec.last_auto_reminder_at = new Date(rec.last_auto_reminder_at);
+                  if (rec.last_sms_sent_at) rec.last_sms_sent_at = new Date(rec.last_sms_sent_at);
+                }
+                if (table === 'notifications') {
+                  if (rec.created_at) rec.created_at = new Date(rec.created_at);
+                  if (rec.read_at) rec.read_at = new Date(rec.read_at);
+                }
+                return rec;
+              });
+              await col.insertMany(records);
+              console.log(`[Database] Imported ${records.length} records into MongoDB collection "${table}"`);
+            }
+          }
+        }
+      }
+    }
 
-    // Safely add missing columns to transactions
-    try { await conn.query("ALTER TABLE transactions ADD COLUMN fine_amount DECIMAL(8,2) NOT NULL DEFAULT 0.00"); } catch (e) {}
-    try { await conn.query("ALTER TABLE transactions ADD COLUMN last_sms_sent_at DATETIME NULL"); } catch (e) {}
-    try { await conn.query("ALTER TABLE transactions ADD COLUMN sms_status ENUM('None', 'Sent', 'Delivered', 'Failed', 'Pending') NOT NULL DEFAULT 'None'"); } catch (e) {}
-    try { await conn.query("ALTER TABLE transactions ADD COLUMN sms_count INT NOT NULL DEFAULT 0"); } catch (e) {}
-    try { await conn.query("ALTER TABLE transactions ADD COLUMN duration VARCHAR(50) NOT NULL DEFAULT '6 days'"); } catch (e) {}
-    try { await conn.query("ALTER TABLE transactions ADD COLUMN auto_reminders_count INT NOT NULL DEFAULT 0"); } catch (e) {}
-    try { await conn.query("ALTER TABLE transactions ADD COLUMN last_auto_reminder_at DATETIME NULL"); } catch (e) {}
-    try { await conn.query("ALTER TABLE transactions MODIFY COLUMN issue_date DATETIME NOT NULL"); } catch (e) {}
-    try { await conn.query("ALTER TABLE transactions MODIFY COLUMN due_date DATETIME NOT NULL"); } catch (e) {}
-    try { await conn.query("ALTER TABLE transactions MODIFY COLUMN return_date DATETIME NULL"); } catch (e) {}
+    // Ensure all dates in transactions are proper Date objects for query comparisons
+    const stringTx = await mongoDb.collection('transactions').find({ due_date: { $type: 'string' } }).toArray();
+    for (const t of stringTx) {
+      const updates = {};
+      if (t.issue_date) updates.issue_date = new Date(t.issue_date);
+      if (t.due_date) updates.due_date = new Date(t.due_date);
+      if (t.return_date) updates.return_date = new Date(t.return_date);
+      if (t.created_at) updates.created_at = new Date(t.created_at);
+      if (t.last_auto_reminder_at) updates.last_auto_reminder_at = new Date(t.last_auto_reminder_at);
+      if (t.last_sms_sent_at) updates.last_sms_sent_at = new Date(t.last_sms_sent_at);
+      await mongoDb.collection('transactions').updateOne({ _id: t._id }, { $set: updates });
+    }
 
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS notifications (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL,
-        transaction_id INT NULL,
-        type ENUM('SMS', 'InApp', 'Email') NOT NULL DEFAULT 'SMS',
-        recipient VARCHAR(100) NOT NULL,
-        message TEXT NOT NULL,
-        status ENUM('Sent', 'Delivered', 'Failed', 'Pending') NOT NULL DEFAULT 'Sent',
-        provider VARCHAR(50) DEFAULT 'CollegeSMSGateway',
-        is_read BOOLEAN NOT NULL DEFAULT FALSE,
-        read_at TIMESTAMP NULL,
-        title VARCHAR(150) NULL DEFAULT 'Library Book Overdue Reminder',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        INDEX idx_user_notif (user_id),
-        INDEX idx_read (user_id, is_read)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    `);
+    // Initialize sequence counters based on highest existing IDs
+    for (const table of ['users', 'books', 'transactions', 'notifications', 'policies', 'audit_logs']) {
+      const topDoc = await mongoDb.collection(table).find({}).sort({ id: -1 }).limit(1).toArray();
+      const maxId = (topDoc && topDoc.length > 0 && topDoc[0].id) ? topDoc[0].id : 0;
+      await mongoDb.collection('_counters').updateOne(
+        { _id: table },
+        { $max: { seq: maxId } },
+        { upsert: true }
+      );
+    }
 
-    try { await conn.query("ALTER TABLE notifications ADD COLUMN is_read BOOLEAN NOT NULL DEFAULT FALSE"); } catch (e) {}
-    try { await conn.query("ALTER TABLE notifications ADD COLUMN read_at TIMESTAMP NULL"); } catch (e) {}
-    try { await conn.query("ALTER TABLE notifications ADD COLUMN title VARCHAR(150) NULL DEFAULT 'Library Book Overdue Reminder'"); } catch (e) {}
+    // Ensure critical performance indexes
+    await mongoDb.collection('users').createIndex({ email: 1 }, { background: true });
+    await mongoDb.collection('users').createIndex({ username: 1 }, { background: true });
+    await mongoDb.collection('users').createIndex({ id: 1 }, { unique: true, background: true });
+    await mongoDb.collection('books').createIndex({ id: 1 }, { unique: true, background: true });
+    await mongoDb.collection('books').createIndex({ title: 1 }, { background: true });
+    await mongoDb.collection('transactions').createIndex({ id: 1 }, { unique: true, background: true });
+    await mongoDb.collection('transactions').createIndex({ user_id: 1, status: 1 }, { background: true });
+    await mongoDb.collection('notifications').createIndex({ id: 1 }, { unique: true, background: true });
+    await mongoDb.collection('policies').createIndex({ policy_key: 1 }, { unique: true, background: true });
 
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS policies (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        policy_key VARCHAR(100) UNIQUE NOT NULL,
-        policy_value VARCHAR(255) NOT NULL,
-        description VARCHAR(255) NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    `);
-
-    try {
-      await conn.query(`
-        INSERT INTO policies (policy_key, policy_value, description)
-        VALUES ('borrowing_mode', 'testing', 'System borrowing duration mode: production (6 days) or testing (10 minutes)')
-        ON DUPLICATE KEY UPDATE description = VALUES(description)
-      `);
-    } catch (e) {}
-
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS audit_logs (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NULL,
-        user_name VARCHAR(150) NULL,
-        action VARCHAR(100) NOT NULL,
-        target_type VARCHAR(50) NULL,
-        target_id INT NULL,
-        details TEXT NULL,
-        ip_address VARCHAR(50) NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_action (action),
-        INDEX idx_created (created_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    `);
-
-    try { await conn.query("ALTER TABLE audit_logs ADD COLUMN target_type VARCHAR(50) NULL"); } catch (e) {}
-    try { await conn.query("ALTER TABLE audit_logs ADD COLUMN target_id INT NULL"); } catch (e) {}
-
-    conn.release();
-    console.log('[Database] Tables verified and ready.');
+    console.log('[Database] MongoDB collections, indexes, and full dataset verified and ready.');
   } catch (err) {
-    console.warn('[Database] Table initialization notice:', err.message);
+    console.warn('[Database] Collection initialization notice:', err.message);
   }
+}
+
+/**
+ * Execute query against MongoDB
+ */
+async function query(sql, params = []) {
+  if (!isConnected || !mongoDb) {
+    await testConnection();
+    await initTables();
+  }
+  return await executeMongoQuery(mongoDb, sql, params);
+}
+
+/**
+ * Emulate MySQL connection object with transaction hooks
+ */
+async function getConnection() {
+  if (!isConnected || !mongoDb) {
+    await testConnection();
+    await initTables();
+  }
+
+  return {
+    query: async (sql, params = []) => {
+      const res = await executeMongoQuery(mongoDb, sql, params);
+      return [res];
+    },
+    beginTransaction: async () => {},
+    commit: async () => {},
+    rollback: async () => {},
+    release: () => {}
+  };
 }
 
 module.exports = {
-  getPool,
   testConnection,
+  initTables,
   query,
   getConnection,
-  initTables,
+  getDb: () => mongoDb,
+  getClient: () => mongoClient,
+  collection: (name) => mongoDb ? mongoDb.collection(name) : null,
   get isConnected() { return isConnected; }
 };
