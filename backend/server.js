@@ -42,15 +42,20 @@ app.use(['/api/sms', '/sms'], smsRoutes);
 app.use(['/api/admin', '/admin'], adminRoutes);
 
 // System Health Check
-app.get(['/api/health', '/health'], (req, res) => {
+app.get(['/api/health', '/health'], async (req, res) => {
+  try {
+    await db.testConnection();
+  } catch (e) {}
+
+  const connected = Boolean(db.isConnected || db.isAtlasConnected);
   res.json({
     status: 'ok',
     system: 'KCT AI Smart Library',
     institution: 'Kumaraguru College of Technology (KCT)',
     database: 'mongodb',
     timestamp: new Date().toISOString(),
-    mongodb_connected: db.isConnected,
-    atlas_connected: db.isAtlasConnected,
+    mongodb_connected: connected,
+    atlas_connected: Boolean(db.isAtlasConnected),
     database_engine: db.isAtlasConnected ? 'MongoDB Atlas (Cloud)' : 'Resilient High-Speed MongoDB Engine',
     ai_provider: process.env.AI_PROVIDER || 'gemini',
     ai_key_configured: Boolean(process.env.AI_API_KEY && process.env.AI_API_KEY.length > 0)

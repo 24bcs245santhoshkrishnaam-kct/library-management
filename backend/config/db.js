@@ -233,6 +233,6 @@ module.exports = {
   getDb: () => mongoDb,
   getClient: () => mongoClient,
   collection: (name) => mongoDb ? mongoDb.collection(name) : null,
-  get isConnected() { return isConnected; },
-  get isAtlasConnected() { return Boolean(mongoClient); }
+  get isConnected() { return Boolean(isConnected || mongoClient || mongoDb || global._mongoClient || global._mongoDb); },
+  get isAtlasConnected() { return Boolean(mongoClient || global._mongoClient); }
 };
