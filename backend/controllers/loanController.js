@@ -168,6 +168,42 @@ async function markAllNotificationsAsRead(req, res) {
   }
 }
 
+/**
+ * Feature 4: Permanently clear all notifications for current student
+ */
+async function clearMyNotifications(req, res) {
+  try {
+    const result = await loanService.clearStudentNotifications(req.user.id);
+    res.json({
+      success: true,
+      message: result.message
+    });
+  } catch (err) {
+    console.error('[Clear Student Notifications Error]:', err.message);
+    res.status(500).json({ error: 'Failed to clear notifications', message: err.message });
+  }
+}
+
+/**
+ * Feature 4: Permanently clear a single notification for current student
+ */
+async function clearMySingleNotification(req, res) {
+  try {
+    const notificationId = parseInt(req.params.id, 10);
+    if (!notificationId) {
+      return res.status(400).json({ error: 'Validation Error', message: 'Valid notification ID required' });
+    }
+    const result = await loanService.clearSingleStudentNotification(notificationId, req.user.id);
+    res.json({
+      success: true,
+      message: result.message
+    });
+  } catch (err) {
+    console.error('[Clear Single Notification Error]:', err.message);
+    res.status(500).json({ error: 'Failed to clear notification', message: err.message });
+  }
+}
+
 async function renewLoan(req, res) {
   try {
     const transactionId = parseInt(req.params.id, 10);
@@ -304,6 +340,8 @@ module.exports = {
   getStudentNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead,
+  clearMyNotifications,
+  clearMySingleNotification,
   getBorrowingMode,
   updateBorrowingMode,
   getLibrarianNotifications,

@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const db = require('../config/db');
+const loanService = require('../services/loanService');
 
 async function getStats(req, res) {
   try {
@@ -389,6 +390,9 @@ async function updatePolicy(req, res) {
       INSERT INTO audit_logs (user_id, user_name, action, details)
       VALUES (?, ?, 'UPDATE_POLICY', ?)
     `, [req.user.id, req.user.name || 'Admin', `Updated policy ${key} to ${value}`]).catch(e => console.warn('Audit error:', e.message));
+
+    // Instantly invalidate loanService policy cache
+    loanService.invalidatePolicyCache();
 
     res.json({ success: true, message: `Policy "${key}" updated successfully.` });
   } catch (err) {

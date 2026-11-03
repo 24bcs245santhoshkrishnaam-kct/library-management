@@ -20,6 +20,8 @@ import {
   getStudentNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead,
+  clearStudentNotifications,
+  clearSingleStudentNotification,
   getActivePolicies
 } from '../services/api';
 import CountdownTimer from './CountdownTimer';
@@ -55,7 +57,8 @@ import {
   Award,
   Compass,
   Globe,
-  Menu
+  Menu,
+  Trash2
 } from 'lucide-react';
 
 export default function StudentDashboard({ onAskChatbot }) {
@@ -124,6 +127,7 @@ export default function StudentDashboard({ onAskChatbot }) {
   // Student Notifications State (Feature 2 & 5)
   const [notificationsList, setNotificationsList] = useState([]);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const [showClearAllNotifModal, setShowClearAllNotifModal] = useState(false);
 
   const unreadNotificationsCount = notificationsList.filter(n => !n.is_read).length;
 
@@ -158,6 +162,41 @@ export default function StudentDashboard({ onAskChatbot }) {
       );
     } catch (err) {
       console.error('Failed to mark all notifications as read:', err);
+    }
+  };
+
+  const handleClearAllNotifications = async () => {
+    try {
+      await clearStudentNotifications();
+      setNotificationsList([]);
+      setShowClearAllNotifModal(false);
+      setNotification({
+        type: 'success',
+        message: 'All notifications cleared permanently from your account.'
+      });
+    } catch (err) {
+      console.error('Failed to clear notifications:', err);
+      setNotification({
+        type: 'error',
+        message: 'Failed to clear notifications. Please try again.'
+      });
+    }
+  };
+
+  const handleClearSingleNotification = async (notificationId) => {
+    try {
+      await clearSingleStudentNotification(notificationId);
+      setNotificationsList(prev => prev.filter(n => n.id !== notificationId));
+      setNotification({
+        type: 'success',
+        message: 'Notification removed from your history.'
+      });
+    } catch (err) {
+      console.error('Failed to clear notification:', err);
+      setNotification({
+        type: 'error',
+        message: 'Failed to clear notification.'
+      });
     }
   };
 
@@ -288,6 +327,20 @@ export default function StudentDashboard({ onAskChatbot }) {
       if (res && res.config) setActivePolicies(res.config);
     } catch (e) {}
   };
+
+  // Feature 1: Real-time controlled polling to synchronize admin policy changes automatically (every 6 seconds)
+  useEffect(() => {
+    const policyInterval = setInterval(() => {
+      fetchPoliciesData();
+    }, 6000);
+    return () => clearInterval(policyInterval);
+  }, []);
+
+  useEffect(() => {
+    if (activeNav === 'dashboard' || activeNav === 'browse' || activeNav === 'loans') {
+      fetchPoliciesData();
+    }
+  }, [activeNav]);
 
   useEffect(() => {
     fetchLoans();
@@ -690,18 +743,21 @@ export default function StudentDashboard({ onAskChatbot }) {
                     Welcome back, {user?.name}!
                   </h2>
                   <p className="text-secondary small mb-2">
-                    Welcome to KCT AI Smart Library — Autonomous Academic Knowledge Center. Explore 600+ catalog titles, track return deadlines, and borrow books online.
+                    Welcome to KCT AI Smart Library — Autonomous Academic Knowledge Center. Explore 1,600+ catalog titles, track return deadlines, and borrow books online.
                   </p>
                   {activePolicies && (
                     <div className="d-flex align-items-center gap-2 flex-wrap mt-2">
                       <span className="badge bg-teal bg-opacity-10 text-teal-800 border border-teal-subtle px-2.5 py-1 rounded-pill small fw-semibold">
-                        📚 Borrowing Period: {activePolicies.loan_period_days || 5} Days
+                        📚 Borrowing Period: {activePolicies.borrowing_mode === 'testing' ? '10 Minutes (Test Mode)' : `${activePolicies.loan_period_days || 5} Days`}
                       </span>
                       <span className="badge bg-light text-navy-900 border px-2.5 py-1 rounded-pill small">
                         🏷️ Max Quota: {activePolicies.max_books_per_student || 5} Books
                       </span>
                       <span className="badge bg-light text-navy-900 border px-2.5 py-1 rounded-pill small">
                         💰 Late Fine: ₹{activePolicies.fine_per_day || 5.00}/day
+                      </span>
+                      <span className="badge bg-light text-navy-900 border px-2.5 py-1 rounded-pill small">
+                        ⏳ Grace Period: {activePolicies.grace_period_days || 0} Days
                       </span>
                     </div>
                   )}
@@ -712,7 +768,7 @@ export default function StudentDashboard({ onAskChatbot }) {
                   onClick={() => setActiveNav('browse')}
                 >
                   <BookOpen size={16} />
-                  <span>Browse 600+ Books</span>
+                  <span>Browse 1,600+ Books</span>
                 </button>
               </div>
 
@@ -2119,6 +2175,16 @@ export default function StudentDashboard({ onAskChatbot }) {
                       <span>Mark All as Read ({unreadNotificationsCount})</span>
                     </button>
                   )}
+                  {notificationsList.length > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1.5"
+                      onClick={() => setShowClearAllNotifModal(true)}
+                    >
+                      <Trash2 size={14} />
+                      <span>Clear All</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="btn btn-sm btn-light border d-flex align-items-center gap-1.5"
@@ -2213,7 +2279,7 @@ export default function StudentDashboard({ onAskChatbot }) {
                           </div>
                         </div>
 
-                        <div>
+                        <div className="d-flex align-items-center gap-2">
                           {!notif.is_read ? (
                             <button
                               type="button"
@@ -2225,10 +2291,53 @@ export default function StudentDashboard({ onAskChatbot }) {
                           ) : (
                             <span className="text-muted small">✓ Acknowledged</span>
                           )}
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-outline-danger rounded-pill px-2 py-0.5 small d-flex align-items-center gap-1"
+                            title="Clear notification from your history"
+                            onClick={() => handleClearSingleNotification(notif.id)}
+                          >
+                            <Trash2 size={12} />
+                            <span>Clear</span>
+                          </button>
                         </div>
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Clear All Notifications Confirmation Modal */}
+              {showClearAllNotifModal && (
+                <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1060 }}>
+                  <div className="modal-dialog modal-dialog-centered modal-sm">
+                    <div className="modal-content rounded-4 border-0 shadow">
+                      <div className="modal-header border-bottom-0 pb-0">
+                        <h6 className="modal-title fw-bold text-navy-900">Clear All Notifications?</h6>
+                        <button type="button" className="btn-close" onClick={() => setShowClearAllNotifModal(false)}></button>
+                      </div>
+                      <div className="modal-body py-3 text-secondary small">
+                        Are you sure you want to permanently clear all notifications from your student history? This action updates your account in MongoDB Atlas and cannot be undone.
+                      </div>
+                      <div className="modal-footer border-top-0 pt-0 d-flex justify-content-end gap-2">
+                        <button 
+                          type="button" 
+                          className="btn btn-sm btn-light border px-3"
+                          onClick={() => setShowClearAllNotifModal(false)}
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          type="button" 
+                          className="btn btn-sm btn-danger px-3 d-flex align-items-center gap-1.5"
+                          onClick={handleClearAllNotifications}
+                        >
+                          <Trash2 size={13} />
+                          <span>Confirm Clear</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

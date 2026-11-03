@@ -546,6 +546,14 @@ async function seed(forceClean = false) {
       console.warn('[Seed] Notice on additional collections seeding:', e.message);
     }
 
+    // Automatically seed the 1,000 verified books across Physics, Chemistry, Aeronautical, Life/Money/Success
+    try {
+      const { seed1000Books } = require('./seed_1000_books');
+      await seed1000Books();
+    } catch (e) {
+      console.warn('[Seed] Notice on 1,000 books seeding:', e.message);
+    }
+
     return true;
   } catch (err) {
     await conn.rollback();

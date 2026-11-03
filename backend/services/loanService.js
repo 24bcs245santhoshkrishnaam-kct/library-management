@@ -38,6 +38,11 @@ let lastPolicyFetch = 0;
  * Feature 4: Dynamic Library Policies Synchronization
  * Fetches all library policy settings from database with short-lived cache
  */
+function invalidatePolicyCache() {
+  cachedPolicies = null;
+  lastPolicyFetch = 0;
+}
+
 async function getActivePolicies(forceRefresh = false) {
   const now = Date.now();
   if (!forceRefresh && cachedPolicies && (now - lastPolicyFetch < 5000)) {
@@ -567,8 +572,22 @@ async function issueBook({ bookId, studentUserId, dueDate, notes }, librarianUse
     }
     const student = userRows[0];
 
-    // 3. Insert transaction with dynamically synchronized due date
+    // 3. Enforce dynamic library policy quota for active loans
     const config = await getBorrowingConfig();
+    const maxBooksQuota = config.max_books_per_student || 5;
+    const [activeLoans] = await conn.query(`
+      SELECT COUNT(*) as count FROM transactions 
+      WHERE user_id = ? AND status = 'Issued'
+    `, [studentUserId]);
+
+    if (activeLoans && activeLoans[0] && activeLoans[0].count >= maxBooksQuota) {
+      await conn.rollback();
+      const err = new Error(`Borrowing limit reached: Student ${student.name} cannot hold more than ${maxBooksQuota} active books simultaneously under current library policy.`);
+      err.statusCode = 400;
+      throw err;
+    }
+
+    // 4. Insert transaction with dynamically synchronized due date
     const nowObj = new Date();
     const issueDateStr = formatLocalDateTime(nowObj);
     const finalDueDate = dueDate || formatLocalDateTime(new Date(nowObj.getTime() + config.duration_ms));
@@ -928,6 +947,31 @@ async function markAllNotificationsAsRead(userId) {
 }
 
 /**
+ * Feature 4: Permanently clear all notifications for a student
+ * Strictly scoped to authenticated student ID. Updates MongoDB Atlas.
+ */
+async function clearStudentNotifications(userId) {
+  const uid = Number(userId);
+  await db.query(`DELETE FROM notifications WHERE user_id = ?`, [uid]);
+  await db.query(`
+    INSERT INTO audit_logs (user_id, action, details)
+    VALUES (?, 'CLEAR_NOTIFICATIONS', 'Student cleared all notifications')
+  `, [uid]).catch(() => {});
+  return { success: true, message: 'All notifications cleared permanently' };
+}
+
+/**
+ * Feature 4: Permanently clear a single notification for a student
+ * Strictly scoped to authenticated student ID. Updates MongoDB Atlas.
+ */
+async function clearSingleStudentNotification(notificationId, userId) {
+  const notifId = Number(notificationId);
+  const uid = Number(userId);
+  await db.query(`DELETE FROM notifications WHERE id = ? AND user_id = ?`, [notifId, uid]);
+  return { success: true, message: 'Notification cleared successfully' };
+}
+
+/**
  * Feature 2: Dedicated Librarian Notification Engine
  * Aggregates all library activity alerts:
  * - Online & desk borrowing events
@@ -1129,6 +1173,7 @@ async function clearLibrarianNotifications() {
 }
 
 module.exports = {
+  invalidatePolicyCache,
   getActivePolicies,
   getBorrowingConfig,
   setBorrowingMode,
@@ -1144,6 +1189,8 @@ module.exports = {
   getStudentNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead,
+  clearStudentNotifications,
+  clearSingleStudentNotification,
   getLibrarianNotifications,
   markLibrarianNotificationAsRead,
   markAllLibrarianNotificationsAsRead,

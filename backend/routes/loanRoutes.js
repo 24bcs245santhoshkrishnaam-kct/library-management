@@ -14,6 +14,8 @@ router.get(['/my/status', '/my-status'], authenticateToken, loanController.getMy
 router.get(['/my/notifications', '/my-notifications'], authenticateToken, loanController.getStudentNotifications);
 router.put('/my/notifications/read-all', authenticateToken, loanController.markAllNotificationsAsRead);
 router.put('/my/notifications/:id/read', authenticateToken, loanController.markNotificationAsRead);
+router.delete(['/my/notifications', '/my-notifications'], authenticateToken, loanController.clearMyNotifications);
+router.delete('/my/notifications/:id', authenticateToken, loanController.clearMySingleNotification);
 router.post('/borrow', authenticateToken, loanController.borrowOnline);
 router.post('/:id/renew', authenticateToken, loanController.renewLoan);
 

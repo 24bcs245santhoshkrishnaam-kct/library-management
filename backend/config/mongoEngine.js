@@ -991,6 +991,31 @@ async function executeMongoQuery(db, sql, params = []) {
     }
 
     if (upper.startsWith('DELETE')) {
+      if ((upper.includes('WHERE ID = ?') || upper.includes('WHERE ID=?')) && (upper.includes('AND USER_ID = ?') || upper.includes('AND USER_ID=?'))) {
+        const notifId = Number(params[0]);
+        const uId = Number(params[1]);
+        const result = await col.deleteOne({ id: notifId, user_id: uId });
+        const res = [{ affectedRows: result.deletedCount || 0 }];
+        res.insertId = 0;
+        res.affectedRows = result.deletedCount || 0;
+        return res;
+      }
+      if (upper.includes("WHERE USER_ID = ?") || upper.includes("WHERE USER_ID=?")) {
+        const uId = Number(params[0]);
+        const result = await col.deleteMany({ user_id: uId });
+        const res = [{ affectedRows: result.deletedCount || 0 }];
+        res.insertId = 0;
+        res.affectedRows = result.deletedCount || 0;
+        return res;
+      }
+      if (upper.includes('WHERE ID = ?') || upper.includes('WHERE ID=?')) {
+        const notifId = Number(params[0]);
+        const result = await col.deleteOne({ id: notifId });
+        const res = [{ affectedRows: result.deletedCount || 0 }];
+        res.insertId = 0;
+        res.affectedRows = result.deletedCount || 0;
+        return res;
+      }
       if (upper.includes("RECIPIENT = 'LIBRARIAN'") || upper.includes("TYPE = 'LIBRARIANALERT'")) {
         const result = await col.deleteMany({ $or: [{ recipient: 'librarian' }, { type: 'LibrarianAlert' }] });
         const res = [{ affectedRows: result.deletedCount || 1 }];
@@ -1007,7 +1032,7 @@ async function executeMongoQuery(db, sql, params = []) {
   }
 
   // 6. NOTIFICATIONS QUERIES
-  if (normalized.includes('notifications')) {
+  if (upper.includes('FROM NOTIFICATIONS') || upper.includes('INTO NOTIFICATIONS') || upper.includes('UPDATE NOTIFICATIONS') || upper.includes('DELETE FROM NOTIFICATIONS') || upper.includes('JOIN NOTIFICATIONS')) {
     const col = db.collection('notifications');
 
     if (upper.startsWith('SELECT')) {
@@ -1407,6 +1432,31 @@ async function executeMongoQuery(db, sql, params = []) {
     }
 
     if (upper.startsWith('DELETE')) {
+      if ((upper.includes('WHERE ID = ?') || upper.includes('WHERE ID=?')) && (upper.includes('AND USER_ID = ?') || upper.includes('AND USER_ID=?'))) {
+        const notifId = Number(params[0]);
+        const uId = Number(params[1]);
+        const result = await col.deleteOne({ id: notifId, user_id: uId });
+        const res = [{ affectedRows: result.deletedCount || 0 }];
+        res.insertId = 0;
+        res.affectedRows = result.deletedCount || 0;
+        return res;
+      }
+      if (upper.includes("WHERE USER_ID = ?") || upper.includes("WHERE USER_ID=?")) {
+        const uId = Number(params[0]);
+        const result = await col.deleteMany({ user_id: uId });
+        const res = [{ affectedRows: result.deletedCount || 0 }];
+        res.insertId = 0;
+        res.affectedRows = result.deletedCount || 0;
+        return res;
+      }
+      if (upper.includes('WHERE ID = ?') || upper.includes('WHERE ID=?')) {
+        const notifId = Number(params[0]);
+        const result = await col.deleteOne({ id: notifId });
+        const res = [{ affectedRows: result.deletedCount || 0 }];
+        res.insertId = 0;
+        res.affectedRows = result.deletedCount || 0;
+        return res;
+      }
       if (upper.includes("RECIPIENT = 'LIBRARIAN'") || upper.includes("TYPE = 'LIBRARIANALERT'")) {
         const result = await col.deleteMany({ $or: [{ recipient: 'librarian' }, { type: 'LibrarianAlert' }] });
         const res = [{ affectedRows: result.deletedCount || 1 }];

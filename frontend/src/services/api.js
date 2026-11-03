@@ -117,6 +117,16 @@ export const markAllNotificationsAsRead = async () => {
   return res.data;
 };
 
+export const clearStudentNotifications = async () => {
+  const res = await API.delete('/loans/my/notifications');
+  return res.data;
+};
+
+export const clearSingleStudentNotification = async (id) => {
+  const res = await API.delete(`/loans/my/notifications/${id}`);
+  return res.data;
+};
+
 export const getBorrowingMode = async () => {
   const res = await API.get('/loans/borrowing-mode');
   return res.data;

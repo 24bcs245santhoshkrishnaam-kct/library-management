@@ -70,8 +70,8 @@ function MainApp() {
     );
   }
 
-  // FEATURES 4, 5 & 9: Shared Cinematic 3D Book Animation for Every Login & Logout
-  if (authTransition) {
+  // FEATURE 5: Shared Cinematic 3D Book Animation for Student Login Only (Never for Librarian or Admin)
+  if (authTransition && (authTransition.role === 'student' || authTransition.mode === 'logout-transition')) {
     return (
       <CinematicBookIntro 
         mode={authTransition.mode} 

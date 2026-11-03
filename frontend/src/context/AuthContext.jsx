@@ -39,7 +39,13 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('smart_library_token', res.token);
       setToken(res.token);
       setUser(res.user);
-      setAuthTransition({ mode: 'login-transition', role: res.user.role });
+      // FEATURE 5: Cinematic intro triggers ONLY for successful student login
+      // Librarian and Admin logins flow immediately into their dashboards without intro
+      if (res.user && res.user.role === 'student') {
+        setAuthTransition({ mode: 'login-transition', role: 'student' });
+      } else {
+        setAuthTransition(null);
+      }
       return { success: true, user: res.user, message: res.message };
     } catch (err) {
       return { 
