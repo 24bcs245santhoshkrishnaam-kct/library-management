@@ -294,17 +294,28 @@ class PureJsCollection {
         current = unwound;
       } else if (stage.$project) {
         const proj = stage.$project;
+        const getFieldVal = (d, p) => {
+          if (!d || !p) return undefined;
+          const parts = p.split('.');
+          let cur = d;
+          for (const part of parts) {
+            if (cur === null || cur === undefined) return undefined;
+            cur = cur[part];
+          }
+          return cur;
+        };
+
         current = current.map(doc => {
           const out = {};
           for (const [k, v] of Object.entries(proj)) {
             if (v === 1) {
               out[k] = doc[k];
             } else if (typeof v === 'string' && v.startsWith('$')) {
-              out[k] = doc[v.slice(1)];
+              out[k] = getFieldVal(doc, v.slice(1));
             } else if (v && typeof v === 'object' && !Array.isArray(v)) {
               if (v.$ifNull) {
                 const [f, fallback] = v.$ifNull;
-                const fieldVal = typeof f === 'string' && f.startsWith('$') ? doc[f.slice(1)] : f;
+                const fieldVal = typeof f === 'string' && f.startsWith('$') ? getFieldVal(doc, f.slice(1)) : f;
                 out[k] = (fieldVal !== null && fieldVal !== undefined) ? fieldVal : fallback;
               } else if (v.$cond) {
                 const [cond, thenVal, elseVal] = v.$cond;
@@ -313,7 +324,7 @@ class PureJsCollection {
                   condMet = cond.$or.some(c => {
                     if (c.$eq) {
                       const [cf, target] = c.$eq;
-                      const cVal = typeof cf === 'string' && cf.startsWith('$') ? doc[cf.slice(1)] : cf;
+                      const cVal = typeof cf === 'string' && cf.startsWith('$') ? getFieldVal(doc, cf.slice(1)) : cf;
                       return cVal === target;
                     }
                     return false;

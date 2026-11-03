@@ -778,54 +778,182 @@ async function getCareerGoalRoadmap(goalKey = 'aiml_engineer') {
 }
 
 /**
- * Personalized Student Recommendations based on borrowing history
+ * Dynamic AI-Based Student Recommendation System (YouTube-style)
+ * Analyzes borrowing history, most recent borrowed book, categories, authors, and cross-subject associations.
+ * Displays 8-12 dynamic recommendations and explains "Because You Borrowed [Book Name]".
  */
-async function getPersonalizedStudentRecommendations(userId, limit = 8) {
+async function getPersonalizedStudentRecommendations(userId, limit = 12) {
+  // 1. Fetch user metadata (e.g. department)
+  const userRows = await db.query('SELECT id, name, department, role FROM users WHERE id = ?', [userId]);
+  const user = userRows && userRows.length > 0 ? userRows[0] : { department: 'CSE' };
+
+  // 2. Fetch full borrowing history for student, latest transaction first
   const userLoans = await db.query(`
-    SELECT b.category, b.department, b.title, b.catalog_collection
+    SELECT 
+      t.id as transaction_id,
+      t.book_id,
+      t.status,
+      t.issue_date,
+      b.id as book_id,
+      b.title,
+      b.author,
+      b.category,
+      b.department,
+      b.catalog_collection,
+      b.subject_keywords,
+      b.description
     FROM transactions t
     JOIN books b ON t.book_id = b.id
     WHERE t.user_id = ?
+    ORDER BY t.id DESC
   `, [userId]);
 
   const allBooks = await db.query('SELECT * FROM books');
-  const borrowedCategories = new Set(userLoans.map(l => l.category));
-  const borrowedDepartments = new Set(userLoans.map(l => l.department));
+  if (!allBooks || allBooks.length === 0) {
+    return { heading: 'Recommended for You', last_borrowed_title: null, recommendations: [] };
+  }
 
-  if (borrowedCategories.size === 0) {
-    return allBooks
-      .filter(b => b.department === 'CSE' || b.department === 'AI AND MACHINE LEARNING' || b.catalog_collection === 'Shakespeare Collection' || b.catalog_collection === 'Tamil Literature')
+  // Set of all currently or previously borrowed book IDs to avoid recommending already borrowed books
+  const borrowedBookIds = new Set(userLoans.map(l => l.book_id));
+
+  // If student has never borrowed any book yet: provide curriculum-matched starters
+  if (!userLoans || userLoans.length === 0) {
+    const studentDept = (user.department || 'CSE').toUpperCase();
+    const starterBooks = allBooks
+      .filter(b => b.available_copies > 0)
+      .filter(b => {
+        const bDept = (b.department || '').toUpperCase();
+        return bDept.includes(studentDept) || studentDept.includes(bDept) || bDept === 'CSE' || b.catalog_collection === 'Shakespeare Collection';
+      })
       .slice(0, limit)
       .map(b => ({
         ...b,
-        recommendation_reason: 'Top recommended book in college catalog.'
+        recommendation_reason: `Curated starter recommendation for your ${user.department || 'Academic'} degree curriculum.`
       }));
+
+    return {
+      heading: `Recommended for Your ${user.department || 'Academic'} Curriculum`,
+      last_borrowed_title: null,
+      recommendations: starterBooks
+    };
   }
 
-  const recommendations = allBooks
-    .filter(b => b.available_copies > 0)
-    .map(b => {
-      let score = 0;
-      let reason = 'Curated recommendation for your academic curriculum.';
+  // 3. Most recently borrowed book
+  const lastBorrowed = userLoans[0];
+  const lastBorrowedTitle = lastBorrowed.title;
+  const lastCategory = (lastBorrowed.category || '').toLowerCase();
+  const lastAuthor = (lastBorrowed.author || '').toLowerCase();
+  const lastDept = (lastBorrowed.department || '').toUpperCase();
+  const lastTokens = new Set(tokenize(`${lastBorrowed.title} ${lastBorrowed.category} ${lastBorrowed.subject_keywords || ''}`));
 
-      if (borrowedCategories.has(b.category)) {
-        score += 35;
-        reason = `Recommended based on your interest in ${b.category}.`;
-      } else if (borrowedDepartments.has(b.department)) {
-        score += 18;
-        reason = `Popular in your ${b.department} department.`;
+  // Historical interest profile
+  const categoryFreq = {};
+  const authorFreq = {};
+  userLoans.forEach(l => {
+    const cat = (l.category || '').toLowerCase();
+    const aut = (l.author || '').toLowerCase();
+    categoryFreq[cat] = (categoryFreq[cat] || 0) + 1;
+    authorFreq[aut] = (authorFreq[aut] || 0) + 1;
+  });
+
+  // Cross-domain association topics
+  const associatedTopics = [];
+  for (const [key, tags] of Object.entries(TOPIC_ASSOCIATION_GRAPH)) {
+    if (lastCategory.includes(key.toLowerCase()) || lastBorrowedTitle.toLowerCase().includes(key.toLowerCase())) {
+      associatedTopics.push(...tags.map(t => t.toLowerCase()));
+    }
+  }
+
+  // 4. Candidate Scoring & Filtering (Exclude already borrowed books)
+  let candidates = allBooks.filter(b => !borrowedBookIds.has(b.id) && b.available_copies > 0);
+  // Fallback if student read all available books in category: allow other catalog books
+  if (candidates.length < limit) {
+    candidates = allBooks.filter(b => !borrowedBookIds.has(b.id));
+  }
+  if (candidates.length === 0) {
+    candidates = allBooks.slice(0, limit);
+  }
+
+  const scored = candidates.map(b => {
+    let score = 0;
+    let reason = `Recommended because you borrowed "${lastBorrowedTitle}".`;
+    const bCat = (b.category || '').toLowerCase();
+    const bAuthor = (b.author || '').toLowerCase();
+    const bDept = (b.department || '').toUpperCase();
+
+    // 1. Exact same category as last borrowed book (+45)
+    if (bCat === lastCategory) {
+      score += 45;
+      reason = `Because You Borrowed "${lastBorrowedTitle}": Essential companion in ${b.category}.`;
+    }
+
+    // 2. Same author (+40)
+    if (bAuthor && bAuthor === lastAuthor) {
+      score += 40;
+      reason = `Because You Borrowed "${lastBorrowedTitle}": Also written by ${b.author}.`;
+    }
+
+    // 3. Cross-domain topic association (+35)
+    if (associatedTopics.length > 0 && associatedTopics.some(t => bCat.includes(t) || b.title.toLowerCase().includes(t))) {
+      score += 35;
+      reason = `Because You Borrowed "${lastBorrowedTitle}": Deepens knowledge in related field ${b.category}.`;
+    }
+
+    // 4. Specific content mapping (Python -> AI / ML / Programming)
+    if (lastBorrowedTitle.toLowerCase().includes('python') || lastCategory.includes('python')) {
+      const bTitleLower = b.title.toLowerCase();
+      if (bTitleLower.includes('python') || bCat.includes('python') || bCat.includes('programming') || bCat.includes('machine learning') || bCat.includes('data science') || bCat.includes('artificial intelligence')) {
+        score += 50;
+        reason = `Because You Borrowed "${lastBorrowedTitle}": Key practical programming & AI companion.`;
       }
+    }
 
-      return {
-        ...b,
-        score,
-        recommendation_reason: reason
-      };
-    })
+    // 5. Literature / Novels mapping
+    if (lastCategory.includes('literature') || lastCategory.includes('novel') || lastCategory.includes('fiction') || lastCategory.includes('shakespeare') || lastCategory.includes('tamil')) {
+      if (bCat.includes('literature') || bCat.includes('novel') || bCat.includes('fiction') || bCat.includes('shakespeare') || bCat.includes('tamil') || b.catalog_collection === lastBorrowed.catalog_collection) {
+        score += 45;
+        reason = `Because You Borrowed "${lastBorrowedTitle}": Captivating literary work in ${b.category}.`;
+      }
+    }
+
+    // 6. Token overlap (+3 per matched token)
+    const bTokens = tokenize(`${b.title} ${b.category} ${b.subject_keywords || ''}`);
+    let overlap = 0;
+    bTokens.forEach(t => {
+      if (lastTokens.has(t)) overlap++;
+    });
+    score += Math.min(25, overlap * 5);
+
+    // 7. General student history preference (+10)
+    if (categoryFreq[bCat]) {
+      score += Math.min(15, categoryFreq[bCat] * 5);
+    }
+    if (authorFreq[bAuthor]) {
+      score += Math.min(20, authorFreq[bAuthor] * 10);
+    }
+
+    // 8. Same academic department (+10)
+    if (bDept === lastDept) {
+      score += 10;
+    }
+
+    return {
+      ...b,
+      score,
+      recommendation_reason: reason
+    };
+  });
+
+  // Sort by score descending and take top 8 to 12
+  const topRecommendations = scored
     .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+    .slice(0, Math.max(8, limit));
 
-  return recommendations;
+  return {
+    heading: `Because You Borrowed "${lastBorrowedTitle}"`,
+    last_borrowed_title: lastBorrowedTitle,
+    recommendations: topRecommendations
+  };
 }
 
 module.exports = {

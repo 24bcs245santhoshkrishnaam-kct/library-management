@@ -94,19 +94,27 @@ async function executeMongoQuery(db, sql, params = []) {
     }
 
     if (upper.startsWith('INSERT') || upper.startsWith('UPDATE')) {
-      let policyKey = 'borrowing_mode';
-      let policyValue = 'testing';
-      let description = '';
+      let policyKey = null;
+      let policyValue = null;
+      let description = null;
 
-      const match = normalized.match(/VALUES\s*\(\s*['"]([^'"]+)['"]/i);
-      if (match) {
-        policyKey = match[1];
-        policyValue = params[0] !== undefined ? params[0] : 'testing';
-        description = params[1] || `Policy for ${policyKey}`;
-      } else {
-        policyKey = params[0] || 'borrowing_mode';
-        policyValue = params[1] !== undefined ? params[1] : 'testing';
+      // Check if literal VALUES ('loan_period_days', '7', '...')
+      const literalMatch = normalized.match(/VALUES\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"](?:\s*,\s*['"]([^'"]*)['"])?/i);
+      if (literalMatch) {
+        policyKey = literalMatch[1];
+        policyValue = literalMatch[2];
+        description = literalMatch[3] || `Policy for ${policyKey}`;
+      } else if (params && params.length >= 2) {
+        policyKey = params[0];
+        policyValue = params[1];
         description = params[2] || `Policy for ${policyKey}`;
+      } else if (params && params.length === 1) {
+        const keyMatch = normalized.match(/WHERE\s+policy_key\s*=\s*['"]?([^'"\s]+)['"]?/i) || normalized.match(/VALUES\s*\(\s*['"]([^'"]+)['"]/i);
+        policyKey = keyMatch ? keyMatch[1] : 'loan_period_days';
+        policyValue = params[0];
+      } else {
+        policyKey = 'borrowing_mode';
+        policyValue = 'production';
       }
 
       const nextId = await getNextSequenceValue(db, 'policies');
@@ -114,7 +122,7 @@ async function executeMongoQuery(db, sql, params = []) {
         policy_value: String(policyValue),
         updated_at: new Date()
       };
-      const setOnInsert = { id: nextId };
+      const setOnInsert = { id: nextId, policy_key: policyKey };
       if (description) {
         updateFields.description = description;
       } else {
@@ -151,23 +159,39 @@ async function executeMongoQuery(db, sql, params = []) {
         return res;
       }
 
-      // Check user by username or email (Login)
-      if (upper.includes('LOWER(USERNAME) = LOWER(?) OR LOWER(EMAIL) = LOWER(?)') ||
+      // Check user by username, email, or student_id (Login / Profile / Duplicate check)
+      if (upper.includes('WHERE EMAIL = ?') ||
+          upper.includes('WHERE LOWER(EMAIL) = ?') ||
+          upper.includes('WHERE LOWER(USERNAME) = ?') ||
+          upper.includes('WHERE USERNAME = ?') ||
+          upper.includes('LOWER(USERNAME) = LOWER(?) OR LOWER(EMAIL) = LOWER(?)') ||
           upper.includes('LOWER(EMAIL) = LOWER(?) OR LOWER(USERNAME) = LOWER(?)') ||
-          upper.includes('EMAIL = ? OR USERNAME = ?')) {
+          upper.includes('EMAIL = ? OR USERNAME = ?') ||
+          upper.includes('LOWER(EMAIL) = ? OR (STUDENT_ID IS NOT NULL AND STUDENT_ID = ?)') ||
+          (upper.includes('WHERE') && upper.includes('EMAIL') && !upper.includes('LEFT JOIN'))) {
         const p1 = String(params[0] || '').toLowerCase().trim();
         const p2 = String(params[1] || p1).toLowerCase().trim();
         const reg1 = new RegExp(`^${escapeRegex(p1)}$`, 'i');
         const reg2 = new RegExp(`^${escapeRegex(p2)}$`, 'i');
-        const user = await col.findOne({ $or: [{ username: reg1 }, { email: reg1 }, { email: reg2 }, { username: reg2 }] });
+        const user = await col.findOne({
+          $or: [
+            { username: reg1 },
+            { email: reg1 },
+            { student_id: reg1 },
+            { username: reg2 },
+            { email: reg2 },
+            { student_id: reg2 }
+          ]
+        });
         const res = user ? [user] : [];
         res.insertId = 0;
         return res;
       }
 
-      // Find user by ID
-      if (upper.includes('WHERE ID = ?') || upper.includes('WHERE ID=?')) {
-        const userId = Number(params[0]);
+      // Find user by ID (parameter or literal)
+      const userIdMatch = normalized.match(/WHERE\s+(?:u\.)?id\s*=\s*(?:\?|(\d+))/i);
+      if (userIdMatch && !upper.includes('LEFT JOIN') && !upper.includes('WHERE 1=1')) {
+        const userId = userIdMatch[1] ? Number(userIdMatch[1]) : Number(params[0]);
         const user = await col.findOne({ id: userId });
         const res = user ? [user] : [];
         res.insertId = 0;
@@ -264,21 +288,47 @@ async function executeMongoQuery(db, sql, params = []) {
       }
 
       const nextId = await getNextSequenceValue(db, 'users');
-      // Format parameters into document
+      // Dynamic column parsing if columns specified: INSERT INTO users (col1, col2, ...) VALUES (...)
+      const colListMatch = normalized.match(/INSERT\s+INTO\s+users\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)/i);
       const doc = {
         id: nextId,
-        username: params[0] || `user_${nextId}`,
-        password_hash: params[1],
-        name: params[2],
-        email: params[3],
-        role: params[4] || 'student',
-        student_id: params[5] || null,
-        department: params[6] || 'General Engineering',
-        contact_number: params[7] || '+91 98765 43210',
-        account_status: params[8] || 'Active',
-        is_demo: Boolean(params[9]),
+        username: `user_${nextId}`,
+        password_hash: null,
+        name: 'Student',
+        email: `student_${nextId}@kct.ac.in`,
+        role: 'student',
+        student_id: null,
+        department: 'CSE',
+        contact_number: '+91 98765 43210',
+        account_status: 'active',
+        is_demo: false,
         created_at: new Date()
       };
+
+      if (colListMatch) {
+        const colNames = colListMatch[1].split(',').map(c => c.trim().toLowerCase());
+        const rawVals = colListMatch[2].split(',').map(v => v.trim());
+        let pIdx = 0;
+        colNames.forEach((colName, idx) => {
+          const valExpr = rawVals[idx];
+          if (valExpr === '?' && pIdx < params.length) {
+            doc[colName] = params[pIdx++];
+          } else if (valExpr !== undefined && valExpr !== null) {
+            const cleanVal = valExpr.replace(/^['"]|['"]$/g, '');
+            doc[colName] = valExpr === '0' ? 0 : valExpr === '1' ? 1 : cleanVal;
+          }
+        });
+      } else {
+        if (params[0] !== undefined) doc.username = params[0];
+        if (params[1] !== undefined) doc.password_hash = params[1];
+        if (params[2] !== undefined) doc.name = params[2];
+        if (params[3] !== undefined) doc.email = params[3];
+        if (params[4] !== undefined) doc.role = params[4];
+        if (params[5] !== undefined) doc.student_id = params[5];
+        if (params[6] !== undefined) doc.department = params[6];
+        if (params[7] !== undefined) doc.contact_number = params[7];
+      }
+
       await col.insertOne(doc);
       const res = [{ affectedRows: 1, insertId: nextId }];
       res.insertId = nextId;
@@ -392,9 +442,10 @@ async function executeMongoQuery(db, sql, params = []) {
         return res;
       }
 
-      // Find book by ID
-      if (upper.includes('WHERE ID = ?') || upper.includes('WHERE ID=?') || upper.includes('WHERE B.ID = ?')) {
-        const bookId = Number(params[0]);
+      // Find book by ID (parameter or literal)
+      const bookIdMatch = normalized.match(/WHERE\s+(?:b\.)?id\s*=\s*(?:\?|(\d+))/i);
+      if (bookIdMatch && !upper.includes('JOIN')) {
+        const bookId = bookIdMatch[1] ? Number(bookIdMatch[1]) : Number(params[0]);
         const book = await col.findOne({ id: bookId });
         const res = book ? [book] : [];
         res.insertId = 0;
@@ -916,6 +967,13 @@ async function executeMongoQuery(db, sql, params = []) {
     }
 
     if (upper.startsWith('DELETE')) {
+      if (upper.includes("RECIPIENT = 'LIBRARIAN'") || upper.includes("TYPE = 'LIBRARIANALERT'")) {
+        const result = await col.deleteMany({ $or: [{ recipient: 'librarian' }, { type: 'LibrarianAlert' }] });
+        const res = [{ affectedRows: result.deletedCount || 1 }];
+        res.insertId = 0;
+        res.affectedRows = result.deletedCount || 1;
+        return res;
+      }
       await col.deleteMany({});
       const res = [{ affectedRows: 1 }];
       res.insertId = 0;
@@ -945,6 +1003,83 @@ async function executeMongoQuery(db, sql, params = []) {
         const res = [formatted];
         res.insertId = 0;
         return res;
+      }
+
+      // 1.5. Librarian notifications (Alerts, borrow/return events, registrations)
+      if (upper.includes("RECIPIENT = 'LIBRARIAN'") || upper.includes("TYPE = 'LIBRARIANALERT'") || upper.includes("LIBRARIAN_NOTIFICATIONS")) {
+        const pipeline = [
+          { $match: { $or: [{ recipient: 'librarian' }, { type: 'LibrarianAlert' }] } },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'user_id',
+              foreignField: 'id',
+              as: 'user'
+            }
+          },
+          { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+          {
+            $lookup: {
+              from: 'transactions',
+              localField: 'transaction_id',
+              foreignField: 'id',
+              as: 'tx'
+            }
+          },
+          { $unwind: { path: '$tx', preserveNullAndEmptyArrays: true } },
+          {
+            $lookup: {
+              from: 'books',
+              localField: 'tx.book_id',
+              foreignField: 'id',
+              as: 'book'
+            }
+          },
+          { $unwind: { path: '$book', preserveNullAndEmptyArrays: true } },
+          {
+            $project: {
+              _id: 0,
+              id: '$id',
+              user_id: '$user_id',
+              transaction_id: '$transaction_id',
+              type: '$type',
+              recipient: '$recipient',
+              message: '$message',
+              title: { $ifNull: ['$title', 'Library Management Alert'] },
+              status: '$status',
+              provider: '$provider',
+              is_read: {
+                $cond: [
+                  { $or: [{ $eq: ['$is_read', 1] }, { $eq: ['$is_read', true] }] },
+                  1,
+                  0
+                ]
+              },
+              read_at: '$read_at',
+              created_at: '$created_at',
+              student_name: { $ifNull: ['$user.name', 'Student'] },
+              student_id: { $ifNull: ['$user.student_id', ''] },
+              student_department: '$user.department',
+              student_contact: '$user.contact_number',
+              book_title: { $ifNull: ['$book.title', 'Library Book'] },
+              book_author: '$book.author',
+              book_id: '$book.id',
+              due_date: '$tx.due_date',
+              loan_status: '$tx.status'
+            }
+          },
+          { $sort: { id: -1 } },
+          { $limit: 1000 }
+        ];
+        const docs = await col.aggregate(pipeline).toArray();
+        for (const d of docs) {
+          if (d.created_at) d.created_at = formatDateTime(d.created_at);
+          if (d.due_date) d.due_date = formatDateTime(d.due_date);
+          if (d.read_at) d.read_at = formatDateTime(d.read_at);
+          d.is_read = (d.is_read === 1 || d.is_read === true) ? 1 : 0;
+        }
+        docs.insertId = 0;
+        return docs;
       }
 
       // 2. Librarian SMS logs with JOINs
@@ -1209,6 +1344,17 @@ async function executeMongoQuery(db, sql, params = []) {
     }
 
     if (upper.startsWith('UPDATE')) {
+      if (upper.includes("RECIPIENT = 'LIBRARIAN'") || upper.includes("TYPE = 'LIBRARIANALERT'")) {
+        const result = await col.updateMany(
+          { $or: [{ recipient: 'librarian' }, { type: 'LibrarianAlert' }] },
+          { $set: { is_read: 1, read_at: new Date() } }
+        );
+        const res = [{ affectedRows: result.modifiedCount }];
+        res.insertId = 0;
+        res.affectedRows = result.modifiedCount;
+        return res;
+      }
+
       if (upper.includes('USER_ID = ? AND IS_READ = FALSE') || (upper.includes('USER_ID = ?') && !upper.includes('WHERE ID = ?'))) {
         const userId = Number(params[0]);
         const result = await col.updateMany({ user_id: userId }, { $set: { is_read: 1, read_at: new Date() } });
@@ -1237,6 +1383,13 @@ async function executeMongoQuery(db, sql, params = []) {
     }
 
     if (upper.startsWith('DELETE')) {
+      if (upper.includes("RECIPIENT = 'LIBRARIAN'") || upper.includes("TYPE = 'LIBRARIANALERT'")) {
+        const result = await col.deleteMany({ $or: [{ recipient: 'librarian' }, { type: 'LibrarianAlert' }] });
+        const res = [{ affectedRows: result.deletedCount || 1 }];
+        res.insertId = 0;
+        res.affectedRows = result.deletedCount || 1;
+        return res;
+      }
       await col.deleteMany({});
       const res = [{ affectedRows: 1 }];
       res.insertId = 0;

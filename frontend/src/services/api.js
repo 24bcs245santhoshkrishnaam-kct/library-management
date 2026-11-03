@@ -163,6 +163,33 @@ export const getRegisteredStudents = async () => {
   return res.data;
 };
 
+// Dedicated Librarian Notifications APIs
+export const getLibrarianNotifications = async () => {
+  const res = await API.get('/loans/librarian-notifications');
+  return res.data;
+};
+
+export const markLibrarianNotificationRead = async (id) => {
+  const res = await API.put(`/loans/librarian-notifications/${id}/read`);
+  return res.data;
+};
+
+export const markAllLibrarianNotificationsRead = async () => {
+  const res = await API.put('/loans/librarian-notifications/read-all');
+  return res.data;
+};
+
+export const clearLibrarianNotifications = async () => {
+  const res = await API.delete('/loans/librarian-notifications/clear');
+  return res.data;
+};
+
+// Dynamic Library Policies (All Users)
+export const getActivePolicies = async () => {
+  const res = await API.get('/loans/policies');
+  return res.data;
+};
+
 // SMS Notifications APIs
 export const previewOverdueSMS = async (loanId) => {
   const res = await API.get(`/sms/preview/${loanId}`);

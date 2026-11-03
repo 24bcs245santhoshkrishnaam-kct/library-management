@@ -133,18 +133,42 @@ async function getUsers(req, res) {
 
 async function createUser(req, res) {
   try {
-    const { username, password, name, email, role, student_id, department, contact_number } = req.body;
+    const { username, password, name, email, role, student_id, department, contact_number, year_semester } = req.body;
 
     if (!name || !email) {
-      return res.status(400).json({ error: 'Validation Error', message: 'Name and email are required.' });
+      return res.status(400).json({ error: 'Validation Error', message: 'Student Name and Personal Email ID are required.' });
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedStudentId = student_id ? student_id.trim() : null;
+
+    // Check for duplicate email or register number
+    const existing = await db.query(
+      'SELECT id, email, student_id FROM users WHERE LOWER(email) = ? OR (student_id IS NOT NULL AND student_id = ?)', 
+      [trimmedEmail, trimmedStudentId || '']
+    );
+
+    if (existing && existing.length > 0) {
+      const match = existing[0];
+      if (match.email && match.email.toLowerCase() === trimmedEmail) {
+        return res.status(409).json({ error: 'Duplicate Error', message: `A student with email address "${email}" is already registered in the system.` });
+      }
+      if (trimmedStudentId && match.student_id && match.student_id.toLowerCase() === trimmedStudentId.toLowerCase()) {
+        return res.status(409).json({ error: 'Duplicate Error', message: `A student with register number "${student_id}" is already registered in the system.` });
+      }
     }
 
     const validRoles = ['student', 'librarian', 'admin'];
     const assignedRole = validRoles.includes(role) ? role : 'student';
-    const finalUsername = (username || email.split('@')[0]).trim();
-    const finalPassword = password || 'Welcome@123';
+    const finalUsername = (username || (trimmedStudentId || trimmedEmail.split('@')[0])).trim();
+    const rawPassword = password ? password.trim() : 'Welcome@123';
 
-    const passwordHash = await bcrypt.hash(finalPassword, 10);
+    if (rawPassword.length < 4) {
+      return res.status(400).json({ error: 'Validation Error', message: 'Password must be at least 4 characters long.' });
+    }
+
+    // Secure bcrypt hashing (salt rounds: 10)
+    const passwordHash = await bcrypt.hash(rawPassword, 10);
 
     const result = await db.query(`
       INSERT INTO users (username, password_hash, name, email, role, student_id, department, contact_number, account_status, is_demo)
@@ -153,22 +177,49 @@ async function createUser(req, res) {
       finalUsername, 
       passwordHash, 
       name.trim(), 
-      email.trim(), 
+      trimmedEmail, 
       assignedRole, 
-      student_id ? student_id.trim() : null,
-      department || 'General',
+      trimmedStudentId,
+      department || 'CSE',
       contact_number || '+91 98765 43210'
     ]);
 
+    // Dispatch real-time librarian notification
+    await db.query(`
+      INSERT INTO notifications (user_id, transaction_id, type, recipient, message, status, provider, title, is_read)
+      VALUES (?, null, 'LibrarianAlert', 'librarian', ?, 'Delivered', 'CampusSystem', 'New Student Registered', 0)
+    `, [
+      result.insertId, 
+      `New student registered by administrator: ${name.trim()} (${trimmedStudentId || 'ID#' + result.insertId}) in ${department || 'General'}. Login credentials active.`
+    ]).catch(() => {});
+
+    // Log security audit trail
+    await db.query(`
+      INSERT INTO audit_logs (user_id, user_name, action, details)
+      VALUES (?, ?, 'CREATE_USER', ?)
+    `, [
+      req.user.id, 
+      req.user.name || 'Admin', 
+      `Created new ${assignedRole} account: ${name.trim()} (${trimmedEmail})`
+    ]).catch(() => {});
+
     res.status(201).json({
       success: true,
-      message: `User ${name} created successfully as ${assignedRole}.`,
-      user_id: result.insertId
+      message: `Student "${name.trim()}" registered successfully! Login credentials (email: ${trimmedEmail}) are active immediately.`,
+      user_id: result.insertId,
+      student: {
+        id: result.insertId,
+        name: name.trim(),
+        email: trimmedEmail,
+        student_id: trimmedStudentId,
+        department: department || 'CSE',
+        role: assignedRole
+      }
     });
   } catch (err) {
     console.error('[Admin Create User Error]:', err);
-    if (err.code === 'ER_DUP_ENTRY') {
-      return res.status(409).json({ error: 'Duplicate Error', message: 'Username or email already exists.' });
+    if (err.code === 'ER_DUP_ENTRY' || err.message?.includes('duplicate')) {
+      return res.status(409).json({ error: 'Duplicate Error', message: 'A user with this email or register number already exists.' });
     }
     res.status(500).json({ error: 'Internal Server Error', message: err.message });
   }

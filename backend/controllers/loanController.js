@@ -239,6 +239,59 @@ async function updateBorrowingMode(req, res) {
   }
 }
 
+/**
+ * Feature 2: Dedicated Librarian Notifications
+ */
+async function getLibrarianNotifications(req, res) {
+  try {
+    const result = await loanService.getLibrarianNotifications();
+    res.json(result);
+  } catch (err) {
+    console.error('[Librarian Notifications Controller Error]:', err);
+    res.status(500).json({ error: 'Internal Server Error', message: err.message });
+  }
+}
+
+async function markLibrarianNotificationRead(req, res) {
+  try {
+    const notifId = req.params.id;
+    await loanService.markLibrarianNotificationAsRead(notifId);
+    res.json({ success: true, message: 'Notification marked as read' });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal Server Error', message: err.message });
+  }
+}
+
+async function markAllLibrarianNotificationsRead(req, res) {
+  try {
+    await loanService.markAllLibrarianNotificationsAsRead();
+    res.json({ success: true, message: 'All librarian notifications marked as read' });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal Server Error', message: err.message });
+  }
+}
+
+async function clearLibrarianNotifications(req, res) {
+  try {
+    await loanService.clearLibrarianNotifications();
+    res.json({ success: true, message: 'Librarian notifications cleared' });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal Server Error', message: err.message });
+  }
+}
+
+/**
+ * Feature 4: Dynamic Library Policies Endpoint for Dashboards
+ */
+async function getActivePolicies(req, res) {
+  try {
+    const policies = await loanService.getActivePolicies();
+    res.json({ success: true, ...policies });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal Server Error', message: err.message });
+  }
+}
+
 module.exports = {
   getMyLoans,
   getMyStatus,
@@ -252,5 +305,10 @@ module.exports = {
   markNotificationAsRead,
   markAllNotificationsAsRead,
   getBorrowingMode,
-  updateBorrowingMode
+  updateBorrowingMode,
+  getLibrarianNotifications,
+  markLibrarianNotificationRead,
+  markAllLibrarianNotificationsRead,
+  clearLibrarianNotifications,
+  getActivePolicies
 };

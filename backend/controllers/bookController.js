@@ -113,9 +113,19 @@ async function getRelatedBooks(req, res) {
 async function getPersonalizedBooks(req, res) {
   try {
     const userId = req.user ? req.user.id : (req.query.user_id || 1);
-    const limit = parseInt(req.query.limit, 10) || 8;
-    const recommendations = await aiRecommendationService.getPersonalizedStudentRecommendations(userId, limit);
-    res.json({ success: true, userId, recommendations });
+    const limit = parseInt(req.query.limit, 10) || 12;
+    const result = await aiRecommendationService.getPersonalizedStudentRecommendations(userId, limit);
+    const recommendations = Array.isArray(result) ? result : (result.recommendations || []);
+    const heading = result.heading || 'Recommended for You';
+    const lastBorrowedTitle = result.last_borrowed_title || null;
+
+    res.json({ 
+      success: true, 
+      userId, 
+      heading,
+      last_borrowed_title: lastBorrowedTitle,
+      recommendations 
+    });
   } catch (err) {
     console.error('[Personalized Recommendations Error]:', err);
     res.status(500).json({ error: 'Personalized Error', message: err.message });

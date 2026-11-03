@@ -15,9 +15,12 @@ import {
   getSMSLogs,
   runAutoOverdueCheck,
   getDepartments,
-  updateLoanDetails,
   getBorrowingMode,
-  updateBorrowingMode
+  updateBorrowingMode,
+  getLibrarianNotifications,
+  markLibrarianNotificationRead,
+  markAllLibrarianNotificationsRead,
+  clearLibrarianNotifications
 } from '../services/api';
 import CountdownTimer from './CountdownTimer';
 import { formatINR } from '../utils/currencyFormatter';
@@ -45,7 +48,8 @@ import {
   Building2,
   CheckCircle,
   FileText,
-  Menu
+  Menu,
+  Bell
 } from 'lucide-react';
 
 export default function LibrarianDashboard() {
@@ -137,15 +141,11 @@ export default function LibrarianDashboard() {
   const [smsLogs, setSmsLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
 
-  // Edit Loan Details State
-  const [editingLoan, setEditingLoan] = useState(null);
-  const [loanEditForm, setLoanEditForm] = useState({
-    due_date: '',
-    fine_amount: 0,
-    status: 'Issued',
-    notes: ''
-  });
-  const [savingLoan, setSavingLoan] = useState(false);
+  // Dedicated Librarian Notifications State (Feature 2)
+  const [librarianNotifications, setLibrarianNotifications] = useState([]);
+  const [librarianUnreadCount, setLibrarianUnreadCount] = useState(0);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const [notifFilter, setNotifFilter] = useState('all'); // 'all', 'overdue', 'borrow', 'return', 'stock'
 
   // Circulation Filter State: 'all' | 'active_overdue' | 'active_unoverdue' | 'returned_unoverdue' | 'returned_overdue'
   const [circulationFilter, setCirculationFilter] = useState('all');
@@ -194,6 +194,7 @@ export default function LibrarianDashboard() {
   useEffect(() => {
     fetchDepts();
     fetchBorrowingMode();
+    fetchLibrarianNotifs();
   }, []);
 
   useEffect(() => {
@@ -202,6 +203,8 @@ export default function LibrarianDashboard() {
     } else if (activeTab === 'sms_logs') {
       setLoadingLogs(true);
       getSMSLogs().then(res => setSmsLogs(res.logs || [])).finally(() => setLoadingLogs(false));
+    } else if (activeTab === 'notifications') {
+      fetchLibrarianNotifs();
     } else {
       fetchLoans();
     }
@@ -210,6 +213,7 @@ export default function LibrarianDashboard() {
   // Feature 4: Real-Time Auto-Refresh Monitor (every 4 seconds for instant borrow updates)
   useEffect(() => {
     const pollInterval = setInterval(() => {
+      fetchLibrarianNotifs();
       if (activeTab === 'overdue' || activeTab === 'circulation') {
         getAllLoans({
           status: activeTab === 'overdue' ? 'Issued' : undefined,
@@ -230,6 +234,17 @@ export default function LibrarianDashboard() {
   // Separate overdue loans and active on-schedule loans
   const overdueLoansList = loans.filter(l => l.is_overdue && l.status === 'Issued');
 
+  // Feature 2: Filtered Librarian Notifications
+  const filteredNotifications = librarianNotifications.filter(n => {
+    if (notifFilter === 'all') return true;
+    if (notifFilter === 'overdue') return n.type === 'Overdue' || n.is_overdue;
+    if (notifFilter === 'duesoon') return n.type === 'DueSoon';
+    if (notifFilter === 'borrow') return (n.type || '').toLowerCase().includes('borrow') || (n.title || '').toLowerCase().includes('borrow');
+    if (notifFilter === 'return') return (n.type || '').toLowerCase().includes('return') || (n.title || '').toLowerCase().includes('return');
+    if (notifFilter === 'stock') return n.type === 'LowStock' || (n.title || '').toLowerCase().includes('stock');
+    return true;
+  });
+
   // Handle Mark As Returned Action
   const handleReturn = async (loanId, title) => {
     try {
@@ -238,7 +253,7 @@ export default function LibrarianDashboard() {
         type: 'success',
         message: res.message || `Book "${title}" marked as Returned! Inventory restored.`
       });
-      await fetchLoans();
+      await Promise.all([fetchLoans(), fetchLibrarianNotifs()]);
     } catch (err) {
       setToast({
         type: 'danger',
@@ -310,38 +325,45 @@ export default function LibrarianDashboard() {
     }
   };
 
-  // Open Edit Loan Details Modal
-  const handleOpenEditLoan = (loan) => {
-    setEditingLoan(loan);
-    setLoanEditForm({
-      due_date: loan.due_date || '',
-      fine_amount: loan.fine_amount || loan.accrued_fine || 0,
-      status: loan.status || 'Issued',
-      notes: loan.notes || ''
-    });
+  // Feature 2: Dedicated Librarian Notification Handlers
+  const fetchLibrarianNotifs = async () => {
+    try {
+      const res = await getLibrarianNotifications();
+      setLibrarianNotifications(res.notifications || []);
+      setLibrarianUnreadCount(res.unread_count || 0);
+    } catch (err) {
+      console.error('Failed to load librarian notifications:', err);
+    }
   };
 
-  // Save Loan Details
-  const handleSaveLoanDetails = async (e) => {
-    e.preventDefault();
-    if (!editingLoan) return;
-    setSavingLoan(true);
+  const handleMarkNotifRead = async (id) => {
     try {
-      await updateLoanDetails(editingLoan.transaction_id, loanEditForm);
-      setToast({
-        type: 'success',
-        message: `Transaction #${editingLoan.transaction_id} information details updated successfully.`
-      });
-      setEditingLoan(null);
-      await fetchLoans();
-    } catch (err) {
-      setToast({
-        type: 'danger',
-        message: err.response?.data?.message || 'Failed to update loan information'
-      });
-    } finally {
-      setSavingLoan(false);
-    }
+      await markLibrarianNotificationRead(id);
+      setLibrarianNotifications(prev =>
+        prev.map(n => n.id === id ? { ...n, is_read: true } : n)
+      );
+      setLibrarianUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (e) {}
+  };
+
+  const handleMarkAllNotifsRead = async () => {
+    try {
+      await markAllLibrarianNotificationsRead();
+      setLibrarianNotifications(prev =>
+        prev.map(n => ({ ...n, is_read: true }))
+      );
+      setLibrarianUnreadCount(0);
+      setToast({ type: 'success', message: 'All library activity alerts marked as read.' });
+    } catch (e) {}
+  };
+
+  const handleClearAllNotifs = async () => {
+    try {
+      await clearLibrarianNotifications();
+      setLibrarianNotifications([]);
+      setLibrarianUnreadCount(0);
+      setToast({ type: 'success', message: 'All librarian activity alerts cleared.' });
+    } catch (e) {}
   };
 
   // Open Issue Book Modal
@@ -376,7 +398,7 @@ export default function LibrarianDashboard() {
         message: res.message || 'Book issued successfully to student!'
       });
       setShowIssueModal(false);
-      await fetchLoans();
+      await Promise.all([fetchLoans(), fetchLibrarianNotifs()]);
     } catch (err) {
       setToast({
         type: 'danger',
@@ -497,6 +519,21 @@ export default function LibrarianDashboard() {
             <span>All Circulation Loans</span>
           </button>
 
+          {/* Feature 2: Dedicated Librarian Notifications */}
+          <button
+            type="button"
+            className={`sidebar-nav-item ${activeTab === 'notifications' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('notifications'); setSidebarOpen(false); }}
+          >
+            <Bell size={18} className={librarianUnreadCount > 0 ? 'text-teal-600' : ''} />
+            <span>Notifications</span>
+            {librarianUnreadCount > 0 && (
+              <span className="badge bg-danger ms-auto rounded-pill px-2">
+                {librarianUnreadCount}
+              </span>
+            )}
+          </button>
+
           {/* Book Inventory Management */}
           <button
             type="button"
@@ -593,6 +630,20 @@ export default function LibrarianDashboard() {
               <span>
                 {borrowingConfig.mode === 'testing' ? 'Mode: Testing (10 Mins)' : 'Mode: Production (6 Days)'}
               </span>
+            </button>
+
+            <button
+              type="button"
+              className={`btn btn-sm btn-light border position-relative d-flex align-items-center justify-content-center p-2 rounded-3 ${activeTab === 'notifications' ? 'border-teal shadow-xs' : ''}`}
+              onClick={() => setActiveTab('notifications')}
+              title="View Librarian Notifications"
+            >
+              <Bell size={16} />
+              {librarianUnreadCount > 0 && (
+                <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style={{ fontSize: '0.62rem' }}>
+                  {librarianUnreadCount}
+                </span>
+              )}
             </button>
 
             <button
@@ -817,15 +868,6 @@ export default function LibrarianDashboard() {
 
                               <button
                                 type="button"
-                                className="btn btn-sm btn-light border p-1.5 text-secondary"
-                                title="Edit Loan Information Details"
-                                onClick={() => handleOpenEditLoan(loan)}
-                              >
-                                <Edit2 size={13} />
-                              </button>
-
-                              <button
-                                type="button"
                                 className="btn btn-sm btn-navy d-flex align-items-center gap-1"
                                 onClick={() => handleReturn(loan.transaction_id, loan.title)}
                               >
@@ -1035,15 +1077,6 @@ export default function LibrarianDashboard() {
                                     </button>
                                   )}
 
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm btn-light border p-1.5 text-secondary"
-                                    title="Edit Loan Information Details"
-                                    onClick={() => handleOpenEditLoan(loan)}
-                                  >
-                                    <Edit2 size={13} />
-                                  </button>
-
                                   {loan.status === 'Issued' && (
                                     <button
                                       type="button"
@@ -1060,6 +1093,193 @@ export default function LibrarianDashboard() {
                         })}
                     </tbody>
                   </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ==============================================================
+              FEATURE 2: DEDICATED NOTIFICATIONS MENU FOR LIBRARIAN
+             ============================================================== */}
+          {activeTab === 'notifications' && (
+            <div>
+              {/* Header */}
+              <div className="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
+                <div>
+                  <h3 className="fw-bold text-navy-900 mb-1 d-flex align-items-center gap-2">
+                    <Bell size={24} className="text-teal-600" />
+                    <span>Librarian Activity Notifications</span>
+                    {librarianUnreadCount > 0 && (
+                      <span className="badge bg-danger rounded-pill fs-6 px-2.5">
+                        {librarianUnreadCount} Unread
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-secondary small mb-0">
+                    Real-time library activities: student borrowings, book returns, overdue alerts, due-date notices, low-stock warnings, and registrations.
+                  </p>
+                </div>
+
+                <div className="d-flex align-items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-teal d-flex align-items-center gap-1.5"
+                    onClick={handleMarkAllNotifsRead}
+                    disabled={librarianUnreadCount === 0}
+                  >
+                    <CheckCircle2 size={15} />
+                    <span>Mark All as Read</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border text-danger d-flex align-items-center gap-1.5"
+                    onClick={handleClearAllNotifs}
+                    disabled={librarianNotifications.length === 0}
+                  >
+                    <Trash2 size={15} />
+                    <span>Clear All</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border"
+                    onClick={fetchLibrarianNotifs}
+                    title="Refresh Notifications"
+                  >
+                    <RefreshCw size={15} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Filter Pills */}
+              <div className="d-flex align-items-center gap-2 flex-wrap mb-4 pb-2 border-bottom">
+                {[
+                  { id: 'all', label: 'All Activities', count: librarianNotifications.length },
+                  { id: 'overdue', label: '🚨 Overdue Alerts', count: librarianNotifications.filter(n => n.type === 'Overdue' || n.is_overdue).length },
+                  { id: 'duesoon', label: '📅 Due Soon', count: librarianNotifications.filter(n => n.type === 'DueSoon').length },
+                  { id: 'borrow', label: '📖 Borrowings', count: librarianNotifications.filter(n => (n.type || '').toLowerCase().includes('borrow') || (n.title || '').toLowerCase().includes('borrow')).length },
+                  { id: 'return', label: '✅ Returns', count: librarianNotifications.filter(n => (n.type || '').toLowerCase().includes('return') || (n.title || '').toLowerCase().includes('return')).length },
+                  { id: 'stock', label: '⚠️ Low Stock', count: librarianNotifications.filter(n => n.type === 'LowStock' || (n.title || '').toLowerCase().includes('stock')).length }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={`btn btn-sm rounded-pill px-3 py-1 fw-semibold small ${
+                      notifFilter === tab.id ? 'btn-navy' : 'btn-light border text-secondary'
+                    }`}
+                    onClick={() => setNotifFilter(tab.id)}
+                  >
+                    {tab.label} ({tab.count})
+                  </button>
+                ))}
+              </div>
+
+              {/* Notification Cards List */}
+              {filteredNotifications.length === 0 ? (
+                <div className="bg-white rounded-4 border p-5 text-center">
+                  <Bell size={42} className="text-muted mb-2 opacity-50" />
+                  <h6 className="fw-bold text-navy-900 mb-1">No Notifications in this Category</h6>
+                  <p className="text-secondary small mb-0">
+                    All library borrowing operations, returns, and inventory stock are up to date.
+                  </p>
+                </div>
+              ) : (
+                <div className="d-flex flex-column gap-3">
+                  {filteredNotifications.map(notif => (
+                    <div
+                      key={notif.id}
+                      className={`p-3.5 rounded-3 border bg-white shadow-xs transition-all notif-card ${
+                        !notif.is_read ? 'border-teal' : ''
+                      }`}
+                      style={{
+                        borderLeft: notif.is_overdue
+                          ? '5px solid #dc2626'
+                          : notif.type === 'LowStock'
+                          ? '5px solid #f59e0b'
+                          : notif.type === 'Return'
+                          ? '5px solid #10b981'
+                          : '5px solid #0d9488',
+                        backgroundColor: !notif.is_read ? '#f8fafc' : '#ffffff'
+                      }}
+                    >
+                      <div className="notif-header-wrap d-flex align-items-start justify-content-between flex-wrap gap-2 mb-2">
+                        <div className="d-flex align-items-center gap-2 flex-wrap">
+                          <span className={`fw-bold small ${notif.is_overdue ? 'text-danger' : 'text-navy-900'}`}>
+                            {notif.title}
+                          </span>
+                          {!notif.is_read && (
+                            <span className="badge bg-danger rounded-pill" style={{ fontSize: '0.65rem' }}>
+                              NEW
+                            </span>
+                          )}
+                          {notif.is_overdue && (
+                            <span className="badge bg-danger text-white rounded-pill small">
+                              Action Required
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-muted" style={{ fontSize: '0.74rem' }}>
+                          🕒 {notif.created_at}
+                        </span>
+                      </div>
+
+                      <div className="text-secondary small mb-2" style={{ lineHeight: '1.45' }}>
+                        {notif.message}
+                      </div>
+
+                      <div className="notif-footer-wrap d-flex align-items-center justify-content-between flex-wrap gap-2 pt-2 border-top text-secondary" style={{ fontSize: '0.76rem' }}>
+                        <div className="d-flex align-items-center gap-3 flex-wrap">
+                          {notif.student_name && (
+                            <span>
+                              Student: <strong className="text-navy-900">{notif.student_name}</strong>
+                              {notif.student_id ? ` (${notif.student_id})` : ''}
+                            </span>
+                          )}
+                          {notif.book_title && (
+                            <span>
+                              Book: <strong>"{notif.book_title}"</strong>
+                            </span>
+                          )}
+                          {notif.due_date && (
+                            <span>
+                              Due Date: <strong className={notif.is_overdue ? 'text-danger' : 'text-secondary'}>{notif.due_date}</strong>
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="d-flex align-items-center gap-2">
+                          {notif.is_overdue && (
+                            <button
+                              type="button"
+                              className="btn btn-xs btn-outline-danger py-1 px-2.5 rounded-pill small"
+                              onClick={() => { setActiveTab('overdue'); }}
+                            >
+                              Open in Overdue Tracker
+                            </button>
+                          )}
+                          {notif.type === 'LowStock' && (
+                            <button
+                              type="button"
+                              className="btn btn-xs btn-outline-navy py-1 px-2.5 rounded-pill small"
+                              onClick={() => { setActiveTab('inventory'); }}
+                            >
+                              View Catalog Stock
+                            </button>
+                          )}
+                          {!notif.is_read && (
+                            <button
+                              type="button"
+                              className="btn btn-xs btn-light border py-1 px-2.5 rounded-pill small"
+                              onClick={() => handleMarkNotifRead(notif.id)}
+                            >
+                              Mark as Read
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -1682,106 +1902,6 @@ export default function LibrarianDashboard() {
                 </button>
                 <button type="submit" className="btn btn-teal btn-sm">
                   {editingBook ? 'Save Changes' : 'Add Book'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Loan Information Details Modal */}
-      {editingLoan && (
-        <div className="modal-overlay" onClick={() => setEditingLoan(null)}>
-          <div className="modal-content-card" onClick={e => e.stopPropagation()} style={{ maxWidth: '540px' }}>
-            <div className="p-4 border-bottom d-flex align-items-center justify-content-between">
-              <div className="d-flex align-items-center gap-2">
-                <Edit2 size={18} className="text-teal-600" />
-                <h5 className="fw-bold text-navy-900 mb-0">Edit Loan Information Details</h5>
-              </div>
-              <button type="button" className="btn-close" onClick={() => setEditingLoan(null)}></button>
-            </div>
-
-            <form onSubmit={handleSaveLoanDetails} className="p-4">
-              <div className="p-3 mb-3 rounded-3 bg-light border small">
-                <div className="d-flex justify-content-between mb-1">
-                  <span className="text-muted">Transaction ID:</span>
-                  <strong className="text-navy-900">#{editingLoan.transaction_id}</strong>
-                </div>
-                <div className="d-flex justify-content-between mb-1">
-                  <span className="text-muted">Student Borrower:</span>
-                  <span className="fw-semibold text-navy-900">{editingLoan.student_name} ({editingLoan.student_id})</span>
-                </div>
-                <div className="d-flex justify-content-between mb-1">
-                  <span className="text-muted">Book Title:</span>
-                  <span className="fw-semibold text-navy-900">{editingLoan.title}</span>
-                </div>
-                <div className="d-flex justify-content-between">
-                  <span className="text-muted">Issued Date:</span>
-                  <span>{editingLoan.issue_date}</span>
-                </div>
-              </div>
-
-              <div className="row g-2 mb-3">
-                <div className="col-6">
-                  <label className="form-label small fw-semibold text-secondary">Return Due Date</label>
-                  <input
-                    type="date"
-                    className="form-control small"
-                    required
-                    value={loanEditForm.due_date}
-                    onChange={e => setLoanEditForm({ ...loanEditForm, due_date: e.target.value })}
-                  />
-                </div>
-                <div className="col-6">
-                  <label className="form-label small fw-semibold text-secondary">Accrued / Adjusted Fine (₹)</label>
-                  <input
-                    type="number"
-                    step="0.50"
-                    min="0"
-                    className="form-control small"
-                    value={loanEditForm.fine_amount}
-                    onChange={e => setLoanEditForm({ ...loanEditForm, fine_amount: parseFloat(e.target.value) || 0 })}
-                  />
-                </div>
-              </div>
-
-              <div className="mb-3">
-                <label className="form-label small fw-semibold text-secondary">Circulation Loan Status</label>
-                <select
-                  className="form-select small"
-                  value={loanEditForm.status}
-                  onChange={e => setLoanEditForm({ ...loanEditForm, status: e.target.value })}
-                >
-                  <option value="Issued">Issued (Active Loan)</option>
-                  <option value="Returned">Returned (Back in Library Stacks)</option>
-                </select>
-              </div>
-
-              <div className="mb-4">
-                <label className="form-label small fw-semibold text-secondary">Circulation Remarks & Notes</label>
-                <textarea
-                  className="form-control small"
-                  rows={3}
-                  placeholder="Reason for extension, condition upon check-in, fine waiver notes..."
-                  value={loanEditForm.notes}
-                  onChange={e => setLoanEditForm({ ...loanEditForm, notes: e.target.value })}
-                />
-              </div>
-
-              <div className="d-flex justify-content-end gap-2">
-                <button
-                  type="button"
-                  className="btn btn-light btn-sm"
-                  onClick={() => setEditingLoan(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-teal btn-sm"
-                  disabled={savingLoan}
-                >
-                  {savingLoan ? 'Saving...' : 'Save Loan Information'}
                 </button>
               </div>
             </form>

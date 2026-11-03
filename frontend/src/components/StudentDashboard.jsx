@@ -19,7 +19,8 @@ import {
   updateProfile,
   getStudentNotifications,
   markNotificationAsRead,
-  markAllNotificationsAsRead
+  markAllNotificationsAsRead,
+  getActivePolicies
 } from '../services/api';
 import CountdownTimer from './CountdownTimer';
 import { formatINR } from '../utils/currencyFormatter';
@@ -84,8 +85,11 @@ export default function StudentDashboard({ onAskChatbot }) {
   const [borrowingBookId, setBorrowingBookId] = useState(null);
   const [notification, setNotification] = useState(null);
 
-  // AI Recommendations State
+  // AI Recommendations State (Feature 1: YouTube-style Dynamic System)
   const [aiPicks, setAiPicks] = useState([]);
+  const [recommendationHeading, setRecommendationHeading] = useState('Recommended for You');
+  const [lastBorrowedTitle, setLastBorrowedTitle] = useState(null);
+  const [activePolicies, setActivePolicies] = useState(null);
   const [loadingAI, setLoadingAI] = useState(false);
   const [aiSubTab, setAiSubTab] = useState('picks'); // 'picks' | 'career' | 'goal'
   
@@ -262,12 +266,14 @@ export default function StudentDashboard({ onAskChatbot }) {
       setLoadingAiSearch(false);
     }
   };
-  // Load AI Recommendations
+  // Load Dynamic AI Recommendations (YouTube-style)
   const fetchAiPicks = async () => {
     setLoadingAI(true);
     try {
       const res = await getPersonalizedBooks();
       setAiPicks(res.recommendations || []);
+      if (res.heading) setRecommendationHeading(res.heading);
+      if (res.last_borrowed_title) setLastBorrowedTitle(res.last_borrowed_title);
     } catch (err) {
       console.error('Failed to load AI recommendations:', err);
     } finally {
@@ -275,11 +281,20 @@ export default function StudentDashboard({ onAskChatbot }) {
     }
   };
 
+  // Feature 4: Load synchronized library policies
+  const fetchPoliciesData = async () => {
+    try {
+      const res = await getActivePolicies();
+      if (res && res.config) setActivePolicies(res.config);
+    } catch (e) {}
+  };
+
   useEffect(() => {
     fetchLoans();
     fetchBooks();
     fetchDepts();
     fetchAiPicks();
+    fetchPoliciesData();
     fetchCareerInfo('Machine Learning');
     fetchRoadmap('aiml_engineer');
     fetchNotifications();
@@ -311,8 +326,8 @@ export default function StudentDashboard({ onAskChatbot }) {
         message: res.message || `Successfully borrowed "${book.title}"!`
       });
       setSelectedBook(null);
-      // Immediately fetch latest borrowing records and notifications from DB
-      await Promise.all([fetchLoans(), fetchBooks(), fetchNotifications(true)]);
+      // Immediately fetch latest borrowing records, notifications, and dynamic recommendations
+      await Promise.all([fetchLoans(), fetchBooks(), fetchNotifications(true), fetchAiPicks()]);
       // FEATURE 1: Immediately switch to Borrowed Books section so student sees it right away
       setActiveNav('loans');
       return { success: true };
@@ -336,7 +351,7 @@ export default function StudentDashboard({ onAskChatbot }) {
         type: 'success',
         message: res.message || `Book "${title}" successfully returned! Library copies restored.`
       });
-      await Promise.all([fetchLoans(), fetchBooks(), fetchNotifications(true)]);
+      await Promise.all([fetchLoans(), fetchBooks(), fetchNotifications(true), fetchAiPicks()]);
     } catch (err) {
       setNotification({
         type: 'danger',
@@ -679,9 +694,22 @@ export default function StudentDashboard({ onAskChatbot }) {
                   <h2 className="fw-bold text-navy-900 mb-1" style={{ letterSpacing: '-0.02em' }}>
                     Welcome back, {user?.name}!
                   </h2>
-                  <p className="text-secondary small mb-0">
+                  <p className="text-secondary small mb-2">
                     Welcome to KCT AI Smart Library — Autonomous Academic Knowledge Center. Explore 600+ catalog titles, track return deadlines, and borrow books online.
                   </p>
+                  {activePolicies && (
+                    <div className="d-flex align-items-center gap-2 flex-wrap mt-2">
+                      <span className="badge bg-teal bg-opacity-10 text-teal-800 border border-teal-subtle px-2.5 py-1 rounded-pill small fw-semibold">
+                        📚 Borrowing Period: {activePolicies.loan_period_days || 5} Days
+                      </span>
+                      <span className="badge bg-light text-navy-900 border px-2.5 py-1 rounded-pill small">
+                        🏷️ Max Quota: {activePolicies.max_books_per_student || 5} Books
+                      </span>
+                      <span className="badge bg-light text-navy-900 border px-2.5 py-1 rounded-pill small">
+                        💰 Late Fine: ₹{activePolicies.fine_per_day || 5.00}/day
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -863,43 +891,82 @@ export default function StudentDashboard({ onAskChatbot }) {
                 )}
               </div>
 
-              {/* Curated AI Recommendations Preview */}
+              {/* Feature 1: AI-Based Dynamic Book Recommendation System (YouTube-style) */}
               <div className="bg-white rounded-4 border p-4">
-                <div className="d-flex align-items-center justify-content-between mb-3">
-                  <div className="d-flex align-items-center gap-2">
-                    <Sparkles size={18} className="text-teal-600" />
-                    <h5 className="fw-bold text-navy-900 mb-0">Curated AI Recommendations for You</h5>
+                <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+                  <div>
+                    <div className="d-flex align-items-center gap-2">
+                      <Sparkles size={20} className="text-teal-600" />
+                      <h5 className="fw-bold text-navy-900 mb-0">
+                        {recommendationHeading || 'Recommended for You'}
+                      </h5>
+                      <span className="badge bg-teal bg-opacity-10 text-teal-700 rounded-pill small fw-semibold px-2 py-0.5">
+                        AI Dynamic Recommendations
+                      </span>
+                    </div>
+                    <p className="text-secondary small mb-0 mt-1">
+                      {lastBorrowedTitle 
+                        ? `Dynamic AI recommendations based on your recent loan of "${lastBorrowedTitle}". Explores related topics, authors, and syllabus concepts.` 
+                        : 'Personalized recommendations tailored to your academic department and borrowing interests.'}
+                    </p>
                   </div>
                   <button 
                     type="button" 
-                    className="btn btn-sm btn-outline-teal"
+                    className="btn btn-sm btn-outline-teal d-flex align-items-center gap-1.5"
                     onClick={() => setActiveNav('ai')}
                   >
-                    View All Picks
+                    <span>View All Recommendations</span>
+                    <ArrowRight size={14} />
                   </button>
                 </div>
 
-                <div className="row g-3">
-                  {aiPicks.slice(0, 4).map(book => (
-                    <div key={book.id} className="col-12 col-sm-6 col-lg-3">
-                      <div 
-                        className="book-cover-card h-100"
-                        onClick={() => setSelectedBook(book)}
-                      >
-                        <div className="book-cover-wrapper">
-                          <img 
-                            src={book.cover_image || 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=400&q=80'} 
-                            alt={book.title}
-                            className="book-cover-image"
-                          />
-                        </div>
-                        <div className="book-title-box">
-                          <h6 className="book-card-name">{book.title}</h6>
+                {loadingAI ? (
+                  <div className="text-center py-5 text-muted small">
+                    <span className="spinner-border spinner-border-sm me-2 text-teal-600" role="status"></span>
+                    Analyzing borrowing history and computing dynamic recommendations...
+                  </div>
+                ) : aiPicks.length === 0 ? (
+                  <div className="text-center py-4 text-muted small bg-light rounded-3">
+                    No recommendations computed yet. Borrow a book to activate personalized recommendations!
+                  </div>
+                ) : (
+                  <div className="row g-3 row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-4 row-cols-xl-6">
+                    {aiPicks.slice(0, 12).map(book => (
+                      <div key={book.id} className="col">
+                        <div 
+                          className="book-cover-card h-100 d-flex flex-column"
+                          onClick={() => setSelectedBook(book)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <div className="book-cover-wrapper position-relative">
+                            <img 
+                              src={book.cover_image || 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=400&q=80'} 
+                              alt={book.title}
+                              className="book-cover-image"
+                            />
+                            <span 
+                              className="badge bg-dark bg-opacity-75 text-white position-absolute bottom-0 start-0 m-1 px-1.5 py-0.5 text-truncate" 
+                              style={{ fontSize: '0.62rem', maxWidth: '90%' }}
+                            >
+                              {book.category}
+                            </span>
+                          </div>
+                          <div className="book-title-box flex-grow-1 p-2 d-flex flex-column justify-content-between">
+                            <div>
+                              <h6 className="book-card-name mb-1" title={book.title}>{book.title}</h6>
+                              <div className="text-muted small" style={{ fontSize: '0.72rem' }}>By {book.author}</div>
+                            </div>
+                            <div className="mt-2 pt-1 border-top">
+                              <span className="text-teal-700 d-block" style={{ fontSize: '0.67rem', lineHeight: '1.2' }}>
+                                💡 {book.recommendation_reason || `Because you borrowed "${lastBorrowedTitle || 'related titles'}"`}
+                              </span>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1235,9 +1302,13 @@ export default function StudentDashboard({ onAskChatbot }) {
                   <div className="bg-white rounded-4 border p-4">
                     <div className="d-flex align-items-center justify-content-between mb-3">
                       <div>
-                        <h5 className="fw-bold text-navy-900 mb-0">Recommended For Your Academic Journey</h5>
+                        <h5 className="fw-bold text-navy-900 mb-0">
+                          {recommendationHeading || 'Recommended For Your Academic Journey'}
+                        </h5>
                         <p className="text-secondary small mb-0">
-                          Based on curriculum enrollment, student borrowing history, and degree requirements.
+                          {lastBorrowedTitle 
+                            ? `Dynamic AI suggestions generated based on your recent borrow of "${lastBorrowedTitle}".` 
+                            : 'Based on curriculum enrollment, student borrowing history, and degree requirements.'}
                         </p>
                       </div>
                     </div>

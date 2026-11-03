@@ -3,9 +3,10 @@ const router = express.Router();
 const loanController = require('../controllers/loanController');
 const { authenticateToken, requireLibrarian } = require('../middleware/auth');
 
-// Configuration mode endpoints
+// Configuration & dynamic policy endpoints (Accessible to all authenticated users)
 router.get('/borrowing-mode', authenticateToken, loanController.getBorrowingMode);
 router.post('/borrowing-mode', authenticateToken, requireLibrarian, loanController.updateBorrowingMode);
+router.get('/policies', authenticateToken, loanController.getActivePolicies);
 
 // Student borrowing status endpoints (Strictly protected - student sees only their own data)
 router.get(['/my', '/my-loans'], authenticateToken, loanController.getMyLoans);
@@ -16,6 +17,12 @@ router.put('/my/notifications/:id/read', authenticateToken, loanController.markN
 router.post('/borrow', authenticateToken, loanController.borrowOnline);
 router.post('/:id/renew', authenticateToken, loanController.renewLoan);
 router.post('/:id/return', authenticateToken, loanController.returnLoan);
+
+// Dedicated Librarian Notifications endpoints (Requires librarian authorization)
+router.get('/librarian-notifications', authenticateToken, requireLibrarian, loanController.getLibrarianNotifications);
+router.put('/librarian-notifications/read-all', authenticateToken, requireLibrarian, loanController.markAllLibrarianNotificationsRead);
+router.put('/librarian-notifications/:id/read', authenticateToken, requireLibrarian, loanController.markLibrarianNotificationRead);
+router.delete('/librarian-notifications/clear', authenticateToken, requireLibrarian, loanController.clearLibrarianNotifications);
 
 // Librarian management endpoints (Requires librarian authorization)
 router.get('/', authenticateToken, requireLibrarian, loanController.getAllLoans);

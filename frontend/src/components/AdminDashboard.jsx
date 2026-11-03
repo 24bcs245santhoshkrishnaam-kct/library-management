@@ -36,7 +36,11 @@ import {
   Layers,
   BarChart3,
   Menu,
-  X
+  X,
+  Eye,
+  EyeOff,
+  Key,
+  Lock
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -94,14 +98,16 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
 
   // Add User Modal
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [newUserForm, setNewUserForm] = useState({
     name: '',
     email: '',
     username: '',
-    password: 'Welcome@2026',
+    password: '',
     role: 'student',
     student_id: '',
     department: 'CSE',
+    year_semester: '1st Year (Sem 1)',
     contact_number: '+91 98765 43210'
   });
   const [submittingUser, setSubmittingUser] = useState(false);
@@ -266,11 +272,25 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
   // Add User Submit
   const handleAddUserSubmit = async (e) => {
     e.preventDefault();
+    if (!newUserForm.name?.trim() || !newUserForm.email?.trim()) {
+      setToast({ type: 'danger', message: 'Student Name and Personal Email ID are required.' });
+      return;
+    }
+    if (!newUserForm.password || newUserForm.password.trim().length < 4) {
+      setToast({ type: 'danger', message: 'Password must be at least 4 characters long.' });
+      return;
+    }
+    if (newUserForm.role === 'student' && !newUserForm.student_id?.trim()) {
+      setToast({ type: 'danger', message: 'Register Number / Roll No is required for students.' });
+      return;
+    }
+
     setSubmittingUser(true);
     try {
       const res = await createAdminUser(newUserForm);
-      setToast({ type: 'success', message: res.message || 'User created successfully.' });
+      setToast({ type: 'success', message: res.message || 'Student account created successfully with active credentials!' });
       setShowAddUserModal(false);
+      setShowPassword(false);
       // Immediately reflect new user in state
       const optimisticUser = {
         id: res.user_id || Date.now(),
@@ -279,7 +299,7 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
         email: newUserForm.email,
         role: newUserForm.role || 'student',
         student_id: newUserForm.student_id,
-        department: newUserForm.department || 'General',
+        department: newUserForm.department || 'CSE',
         contact_number: newUserForm.contact_number,
         account_status: 'active',
         total_loans: 0,
@@ -287,9 +307,20 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
         created_at: new Date().toISOString().split('T')[0]
       };
       setUsers(prev => [optimisticUser, ...prev]);
+      setNewUserForm({
+        name: '',
+        email: '',
+        username: '',
+        password: '',
+        role: 'student',
+        student_id: '',
+        department: 'CSE',
+        year_semester: '1st Year (Sem 1)',
+        contact_number: '+91 98765 43210'
+      });
       await Promise.all([fetchUsers(), fetchStats()]);
     } catch (err) {
-      setToast({ type: 'danger', message: err.response?.data?.message || 'Failed to create user' });
+      setToast({ type: 'danger', message: err.response?.data?.message || err.message || 'Failed to create student account' });
     } finally {
       setSubmittingUser(false);
     }
@@ -648,6 +679,28 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
                   />
                   <button
                     type="button"
+                    className="btn btn-navy btn-sm d-flex align-items-center gap-1.5"
+                    onClick={() => {
+                      setNewUserForm({
+                        name: '',
+                        email: '',
+                        username: '',
+                        password: '',
+                        role: 'student',
+                        student_id: '',
+                        department: 'CSE',
+                        year_semester: '1st Year (Sem 1)',
+                        contact_number: '+91 98765 43210'
+                      });
+                      setShowPassword(false);
+                      setShowAddUserModal(true);
+                    }}
+                  >
+                    <Plus size={15} />
+                    <span>Add Student</span>
+                  </button>
+                  <button
+                    type="button"
                     className="btn btn-teal btn-sm"
                     onClick={() => setShowCSVModal(true)}
                   >
@@ -821,11 +874,18 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
              ============================================================== */}
           {activeTab === 'policies' && (
             <div>
-              <div className="mb-4">
-                <h3 className="fw-bold text-navy-900 mb-1" style={{ letterSpacing: '-0.02em' }}>
-                  Institutional Library Policies & Limits
-                </h3>
-                <p className="text-secondary small mb-0">Configure borrowing limits, renewal thresholds, and daily late fees.</p>
+              <div className="mb-4 d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div>
+                  <h3 className="fw-bold text-navy-900 mb-1" style={{ letterSpacing: '-0.02em' }}>
+                    Institutional Library Policies & Limits
+                  </h3>
+                  <p className="text-secondary small mb-0">
+                    Changes take effect immediately on both Student and Circulation desks without server restart.
+                  </p>
+                </div>
+                <div className="badge-active-teal px-3 py-1.5 rounded-pill small fw-semibold">
+                  ⚡ Live Dynamic Synchronization Active
+                </div>
               </div>
 
               {loadingPolicies ? (
@@ -834,35 +894,47 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
                 </div>
               ) : (
                 <div className="row g-4">
-                  {policies.map(p => (
-                    <div key={p.policy_key} className="col-12 col-md-6">
-                      <div className="p-4 rounded-4 bg-white border">
-                        <div className="d-flex align-items-center justify-content-between mb-2">
-                          <code className="fw-bold text-navy-900">{p.policy_key}</code>
-                          <span className="badge-active-teal px-2 py-0.5 rounded-pill small">Active</span>
-                        </div>
-                        <p className="text-secondary small mb-3">{p.description}</p>
-                        <div className="input-group">
-                          <input
-                            type="text"
-                            className="form-control form-control-sm"
-                            defaultValue={p.policy_value}
-                            id={`policy_val_${p.policy_key}`}
-                          />
-                          <button
-                            type="button"
-                            className="btn btn-navy btn-sm"
-                            onClick={() => {
-                              const el = document.getElementById(`policy_val_${p.policy_key}`);
-                              if (el) handleSavePolicy(p.policy_key, el.value);
-                            }}
-                          >
-                            Update
-                          </button>
+                  {policies.map(p => {
+                    const policyTitles = {
+                      loan_period_days: 'Standard Loan Period (Days)',
+                      max_books_per_student: 'Maximum Active Books per Student',
+                      fine_per_day: 'Daily Overdue Fine Rate (₹)',
+                      grace_period_days: 'Grace Period (Days)',
+                      sms_notifications_enabled: 'SMS & Email Notifications Enabled'
+                    };
+                    const title = policyTitles[p.policy_key] || p.policy_key;
+                    return (
+                      <div key={p.policy_key} className="col-12 col-md-6">
+                        <div className="p-4 rounded-4 bg-white border shadow-xs h-100 d-flex flex-column justify-content-between">
+                          <div>
+                            <div className="d-flex align-items-center justify-content-between mb-2">
+                              <span className="fw-bold text-navy-900">{title}</span>
+                              <code className="text-secondary small">{p.policy_key}</code>
+                            </div>
+                            <p className="text-secondary small mb-3">{p.description}</p>
+                          </div>
+                          <div className="input-group">
+                            <input
+                              type="text"
+                              className="form-control form-control-sm font-monospace"
+                              defaultValue={p.policy_value}
+                              id={`policy_val_${p.policy_key}`}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-navy btn-sm"
+                              onClick={() => {
+                                const el = document.getElementById(`policy_val_${p.policy_key}`);
+                                if (el) handleSavePolicy(p.policy_key, el.value);
+                              }}
+                            >
+                              Update Policy
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -985,66 +1057,190 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
       {/* Add User Modal */}
       {showAddUserModal && (
         <div className="modal-overlay" onClick={() => setShowAddUserModal(false)}>
-          <div className="modal-content-card" onClick={e => e.stopPropagation()} style={{ maxWidth: '540px' }}>
+          <div className="modal-content-card" onClick={e => e.stopPropagation()} style={{ maxWidth: '560px' }}>
             <div className="p-4 border-bottom d-flex align-items-center justify-content-between">
-              <h5 className="fw-bold text-navy-900 mb-0">
-                Add New {newUserForm.role === 'librarian' ? 'Librarian' : 'Student'}
-              </h5>
+              <div className="d-flex align-items-center gap-2">
+                <div 
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    background: 'linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  <Plus size={16} className="text-white" />
+                </div>
+                <div>
+                  <h5 className="fw-bold text-navy-900 mb-0">
+                    Add New {newUserForm.role === 'librarian' ? 'Librarian' : 'Student'}
+                  </h5>
+                  <span className="text-secondary" style={{ fontSize: '0.75rem' }}>
+                    Create login credentials and student registration details
+                  </span>
+                </div>
+              </div>
               <button type="button" className="btn-close" onClick={() => setShowAddUserModal(false)}></button>
             </div>
 
             <form onSubmit={handleAddUserSubmit} className="p-4">
-              <div className="mb-3">
-                <label className="form-label small fw-semibold text-secondary">Full Name</label>
-                <input
-                  type="text"
-                  className="form-control small"
-                  required
-                  value={newUserForm.name}
-                  onChange={e => setNewUserForm({ ...newUserForm, name: e.target.value })}
-                />
-              </div>
-
-              <div className="mb-3">
-                <label className="form-label small fw-semibold text-secondary">Email Address</label>
-                <input
-                  type="email"
-                  className="form-control small"
-                  required
-                  value={newUserForm.email}
-                  onChange={e => setNewUserForm({ ...newUserForm, email: e.target.value })}
-                />
-              </div>
-
-              <div className="row g-2 mb-3">
-                <div className="col-6">
-                  <label className="form-label small fw-semibold text-secondary">Roll Number / ID</label>
+              {/* Name & Register No */}
+              <div className="row g-3 mb-3">
+                <div className="col-12 col-sm-7">
+                  <label className="form-label small fw-semibold text-secondary mb-1">
+                    Student Full Name <span className="text-danger">*</span>
+                  </label>
                   <input
                     type="text"
                     className="form-control small"
+                    placeholder="e.g. Santhosh Krishna"
+                    required
+                    value={newUserForm.name}
+                    onChange={e => setNewUserForm({ ...newUserForm, name: e.target.value })}
+                  />
+                </div>
+                <div className="col-12 col-sm-5">
+                  <label className="form-label small fw-semibold text-secondary mb-1">
+                    Register No / Roll No {newUserForm.role === 'student' && <span className="text-danger">*</span>}
+                  </label>
+                  <input
+                    type="text"
+                    className="form-control small font-monospace"
+                    placeholder="e.g. 24BCS245"
+                    required={newUserForm.role === 'student'}
                     value={newUserForm.student_id}
                     onChange={e => setNewUserForm({ ...newUserForm, student_id: e.target.value })}
                   />
                 </div>
-                <div className="col-6">
-                  <label className="form-label small fw-semibold text-secondary">Department</label>
+              </div>
+
+              {/* Personal Email ID */}
+              <div className="mb-3">
+                <label className="form-label small fw-semibold text-secondary mb-1">
+                  Personal / College Email ID <span className="text-danger">*</span>
+                  <span className="text-muted fw-normal ms-1">(Used to log into portal)</span>
+                </label>
+                <div className="input-group">
+                  <span className="input-group-text bg-light text-secondary">
+                    <Mail size={14} />
+                  </span>
                   <input
-                    type="text"
+                    type="email"
                     className="form-control small"
-                    value={newUserForm.department}
-                    onChange={e => setNewUserForm({ ...newUserForm, department: e.target.value })}
+                    placeholder="student@kct.ac.in"
+                    required
+                    value={newUserForm.email}
+                    onChange={e => setNewUserForm({ ...newUserForm, email: e.target.value })}
                   />
                 </div>
               </div>
 
-              <div className="mb-4">
-                <label className="form-label small fw-semibold text-secondary">Contact Phone</label>
-                <input
-                  type="text"
-                  className="form-control small"
-                  value={newUserForm.contact_number}
-                  onChange={e => setNewUserForm({ ...newUserForm, contact_number: e.target.value })}
-                />
+              {/* Password with Show/Hide toggle */}
+              <div className="mb-3">
+                <div className="d-flex align-items-center justify-content-between mb-1">
+                  <label className="form-label small fw-semibold text-secondary mb-0">
+                    Account Password <span className="text-danger">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn-link p-0 text-primary small text-decoration-none"
+                    style={{ fontSize: '0.74rem' }}
+                    onClick={() => {
+                      const randomPass = 'Pass@' + Math.floor(1000 + Math.random() * 9000);
+                      setNewUserForm({ ...newUserForm, password: randomPass });
+                      setShowPassword(true);
+                    }}
+                  >
+                    Generate Random
+                  </button>
+                </div>
+                <div className="input-group">
+                  <span className="input-group-text bg-light text-secondary">
+                    <Lock size={14} />
+                  </span>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    className="form-control small font-monospace"
+                    placeholder="Enter secure password (min 4 chars)"
+                    required
+                    value={newUserForm.password}
+                    onChange={e => setNewUserForm({ ...newUserForm, password: e.target.value })}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-light border text-secondary"
+                    onClick={() => setShowPassword(!showPassword)}
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+                <div className="text-muted mt-1" style={{ fontSize: '0.72rem' }}>
+                  Passwords are securely hashed with bcrypt (salt rounds: 10) before saving.
+                </div>
+              </div>
+
+              {/* Department & Year/Semester */}
+              <div className="row g-3 mb-3">
+                <div className="col-12 col-sm-6">
+                  <label className="form-label small fw-semibold text-secondary mb-1">Department</label>
+                  <select
+                    className="form-select small"
+                    value={newUserForm.department}
+                    onChange={e => setNewUserForm({ ...newUserForm, department: e.target.value })}
+                  >
+                    <option value="CSE">CSE (Computer Science)</option>
+                    <option value="AI AND MACHINE LEARNING">AI & Data Science / ML</option>
+                    <option value="ECE">ECE (Electronics & Comm)</option>
+                    <option value="EEE">EEE (Electrical & Electronics)</option>
+                    <option value="MECHANICAL">Mechanical Engineering</option>
+                    <option value="CIVIL & BASIC SCIENCES">Civil & Basic Sciences</option>
+                  </select>
+                </div>
+                <div className="col-12 col-sm-6">
+                  <label className="form-label small fw-semibold text-secondary mb-1">Year / Semester</label>
+                  <select
+                    className="form-select small"
+                    value={newUserForm.year_semester || '1st Year (Sem 1)'}
+                    onChange={e => setNewUserForm({ ...newUserForm, year_semester: e.target.value })}
+                  >
+                    <option value="1st Year (Sem 1)">1st Year (Sem 1)</option>
+                    <option value="1st Year (Sem 2)">1st Year (Sem 2)</option>
+                    <option value="2nd Year (Sem 3)">2nd Year (Sem 3)</option>
+                    <option value="2nd Year (Sem 4)">2nd Year (Sem 4)</option>
+                    <option value="3rd Year (Sem 5)">3rd Year (Sem 5)</option>
+                    <option value="3rd Year (Sem 6)">3rd Year (Sem 6)</option>
+                    <option value="4th Year (Sem 7)">4th Year (Sem 7)</option>
+                    <option value="4th Year (Sem 8)">4th Year (Sem 8)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Contact Phone */}
+              <div className="mb-3">
+                <label className="form-label small fw-semibold text-secondary mb-1">Contact Phone Number</label>
+                <div className="input-group">
+                  <span className="input-group-text bg-light text-secondary">
+                    <Phone size={14} />
+                  </span>
+                  <input
+                    type="text"
+                    className="form-control small"
+                    placeholder="+91 98765 43210"
+                    value={newUserForm.contact_number}
+                    onChange={e => setNewUserForm({ ...newUserForm, contact_number: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {/* Security info card */}
+              <div className="p-2.5 rounded-3 bg-light border mb-4 d-flex align-items-start gap-2">
+                <CheckCircle2 size={16} className="text-success mt-0.5 flex-shrink-0" />
+                <div className="small text-secondary" style={{ fontSize: '0.75rem', lineHeight: '1.4' }}>
+                  <strong>Instant Student Portal Access:</strong> The student can log in right away using this <strong>Email ID</strong> and <strong>Password</strong>.
+                </div>
               </div>
 
               <div className="d-flex justify-content-end gap-2">
@@ -1056,7 +1252,7 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-navy btn-sm" disabled={submittingUser}>
-                  {submittingUser ? 'Creating...' : 'Create Account'}
+                  {submittingUser ? 'Registering Student...' : 'Register Student'}
                 </button>
               </div>
             </form>

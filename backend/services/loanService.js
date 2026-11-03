@@ -26,50 +26,110 @@ function formatLocalDateTime(d) {
   return `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())} ${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}:${pad(dateObj.getSeconds())}`;
 }
 
+// In-memory sets to track dynamic librarian notification read & cleared states
+const librarianReadAlerts = new Set();
+const librarianClearedAlerts = new Set();
+
+// Cache of active library policies
+let cachedPolicies = null;
+let lastPolicyFetch = 0;
+
 /**
- * Feature 3: Get system borrowing duration configuration
- * Testing Mode: 10 minutes (600,000 ms)
- * Production Mode: 6 days (518,400,000 ms)
+ * Feature 4: Dynamic Library Policies Synchronization
+ * Fetches all library policy settings from database with short-lived cache
  */
-async function getBorrowingConfig() {
+async function getActivePolicies(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cachedPolicies && (now - lastPolicyFetch < 5000)) {
+    return cachedPolicies;
+  }
   try {
-    const rows = await db.query("SELECT policy_value FROM policies WHERE policy_key = 'borrowing_mode'");
-    const rawVal = (rows && rows.length > 0 && rows[0].policy_value) 
-      ? rows[0].policy_value.toLowerCase().trim() 
-      : (process.env.BORROWING_MODE || 'production').toLowerCase().trim();
-
-    const isTesting = rawVal === 'testing' || rawVal === 'test' || rawVal === '10m' || rawVal === '10_minutes';
-
-    return {
-      mode: isTesting ? 'testing' : 'production',
-      duration_label: isTesting ? '10 minutes' : '6 days',
-      duration_ms: isTesting ? 10 * 60 * 1000 : 6 * 24 * 60 * 60 * 1000,
-      days_equivalent: isTesting ? 0 : 6,
-      description: isTesting 
-        ? 'Testing Mode Active (10-Minute Borrowing Duration)' 
-        : 'Production Mode Active (6-Day Academic Borrowing Duration)'
+    const rows = await db.query('SELECT policy_key, policy_value, description, updated_at FROM policies');
+    const policyMap = {
+      loan_period_days: 5,
+      max_books_per_student: 5,
+      fine_per_day: 5.00,
+      grace_period_days: 2,
+      borrowing_mode: 'production',
+      sms_notifications_enabled: true,
+      max_renewals: 2,
+      allow_reservations: true
     };
+    (rows || []).forEach(r => {
+      const k = r.policy_key;
+      const v = r.policy_value;
+      if (k === 'loan_period_days' || k === 'max_books_per_student' || k === 'grace_period_days' || k === 'max_renewals') {
+        policyMap[k] = parseInt(v, 10) || policyMap[k];
+      } else if (k === 'fine_per_day') {
+        policyMap[k] = parseFloat(v) || policyMap[k];
+      } else if (k === 'sms_notifications_enabled' || k === 'allow_reservations') {
+        policyMap[k] = v === 'true' || v === true || v === '1' || v === 1;
+      } else {
+        policyMap[k] = v;
+      }
+    });
+
+    cachedPolicies = {
+      raw: rows || [],
+      config: policyMap,
+      ...policyMap
+    };
+    lastPolicyFetch = now;
+    return cachedPolicies;
   } catch (err) {
+    console.warn('[LoanService] Failed to load policies from DB:', err.message);
+    const fallbackMap = {
+      loan_period_days: 5,
+      max_books_per_student: 5,
+      fine_per_day: 5.00,
+      grace_period_days: 2,
+      borrowing_mode: 'production',
+      sms_notifications_enabled: true,
+      max_renewals: 2,
+      allow_reservations: true
+    };
     return {
-      mode: 'production',
-      duration_label: '6 days',
-      duration_ms: 6 * 24 * 60 * 60 * 1000,
-      days_equivalent: 6,
-      description: 'Production Mode Active (6-Day Academic Borrowing Duration)'
+      raw: [],
+      config: fallbackMap,
+      ...fallbackMap
     };
   }
 }
 
 /**
- * Feature 3: Set system borrowing duration mode (Production vs Testing)
+ * Feature 3 & 4: Get system borrowing duration configuration synchronized with database policies
+ */
+async function getBorrowingConfig() {
+  const { config } = await getActivePolicies();
+  const rawMode = String(config.borrowing_mode || 'testing').toLowerCase().trim();
+  const isTesting = rawMode === 'testing' || rawMode === 'test' || rawMode === '10m' || rawMode === '10_minutes';
+  const loanDays = config.loan_period_days || 5;
+
+  return {
+    mode: isTesting ? 'testing' : 'production',
+    duration_label: isTesting ? '10 minutes' : `${loanDays} days`,
+    duration_ms: isTesting ? 10 * 60 * 1000 : loanDays * 24 * 60 * 60 * 1000,
+    days_equivalent: isTesting ? 0 : loanDays,
+    loan_period_days: loanDays,
+    max_books_per_student: config.max_books_per_student || 5,
+    fine_per_day: config.fine_per_day || 5.00,
+    description: isTesting 
+      ? 'Testing Mode Active (10-Minute Borrowing Duration)' 
+      : `Production Mode Active (${loanDays}-Day Academic Borrowing Duration)`
+  };
+}
+
+/**
+ * Feature 3 & 4: Set system borrowing duration mode (Production vs Testing)
  */
 async function setBorrowingMode(mode) {
   const normalized = String(mode).toLowerCase().trim() === 'testing' ? 'testing' : 'production';
   await db.query(`
     INSERT INTO policies (policy_key, policy_value, description)
-    VALUES ('borrowing_mode', ?, 'System borrowing duration mode: production (6 days) or testing (10 minutes)')
+    VALUES ('borrowing_mode', ?, 'System borrowing duration mode: production or testing (10 minutes)')
     ON DUPLICATE KEY UPDATE policy_value = VALUES(policy_value)
   `, [normalized]);
+  cachedPolicies = null;
   return await getBorrowingConfig();
 }
 
@@ -436,6 +496,12 @@ async function recordBookReturn(transactionId, user = { name: 'Library Staff', r
     // 5. Commit transaction
     await conn.commit();
 
+    // Notify librarian of book return
+    await db.query(`
+      INSERT INTO notifications (user_id, transaction_id, type, recipient, message, status, provider, title, is_read)
+      VALUES (?, ?, 'LibrarianAlert', 'librarian', ?, 'Delivered', 'CampusSystem', 'Book Returned by Student', 0)
+    `, [transaction.user_id, transactionId, `Book "${transaction.title}" returned by student (Tx #${transactionId}). Copies restored on shelf.`]).catch(() => {});
+
     // Fetch updated records to return
     const [updatedTx] = await conn.query(`
       SELECT t.*, b.title, b.available_copies, b.total_copies
@@ -501,10 +567,11 @@ async function issueBook({ bookId, studentUserId, dueDate, notes }, librarianUse
     }
     const student = userRows[0];
 
-    // 3. Insert transaction
+    // 3. Insert transaction with dynamically synchronized due date
+    const config = await getBorrowingConfig();
     const nowObj = new Date();
     const issueDateStr = formatLocalDateTime(nowObj);
-    const finalDueDate = dueDate || formatLocalDateTime(new Date(nowObj.getTime() + 14 * 24 * 60 * 60 * 1000));
+    const finalDueDate = dueDate || formatLocalDateTime(new Date(nowObj.getTime() + config.duration_ms));
 
     const [insertResult] = await conn.query(`
       INSERT INTO transactions (book_id, user_id, issue_date, due_date, status, notes)
@@ -519,6 +586,12 @@ async function issueBook({ bookId, studentUserId, dueDate, notes }, librarianUse
     `, [bookId]);
 
     await conn.commit();
+
+    // Notify librarian of book issue
+    await db.query(`
+      INSERT INTO notifications (user_id, transaction_id, type, recipient, message, status, provider, title, is_read)
+      VALUES (?, ?, 'LibrarianAlert', 'librarian', ?, 'Delivered', 'CampusSystem', 'Book Issued at Circulation Desk', 0)
+    `, [studentUserId, insertResult.insertId, `Librarian issued "${book.title}" to student ${student.name}. Due on ${finalDueDate}.`]).catch(() => {});
 
     console.log(`[Librarian Issue] Book "${book.title}" issued to ${student.name} by ${librarianUser.name}`);
 
@@ -544,6 +617,14 @@ async function issueBook({ bookId, studentUserId, dueDate, notes }, librarianUse
  * Uses atomic MySQL transaction with row locking
  */
 async function borrowBookOnline(bookId, studentUser, requestedDuration = null) {
+  let student = studentUser;
+  if (typeof studentUser === 'number' || typeof studentUser === 'string') {
+    const uRows = await db.query('SELECT * FROM users WHERE id = ?', [Number(studentUser)]);
+    student = (uRows && uRows[0]) ? uRows[0] : { id: Number(studentUser), name: 'Student' };
+  } else if (!studentUser) {
+    student = { id: 1, name: 'Student' };
+  }
+
   const config = await getBorrowingConfig();
   const durationLabel = config.duration_label;
   const durationMs = config.duration_ms;
@@ -574,7 +655,7 @@ async function borrowBookOnline(bookId, studentUser, requestedDuration = null) {
     const [existingLoan] = await conn.query(`
       SELECT id FROM transactions 
       WHERE book_id = ? AND user_id = ? AND status = 'Issued'
-    `, [bookId, studentUser.id]);
+    `, [bookId, student.id]);
 
     if (existingLoan && existingLoan.length > 0) {
       await conn.rollback();
@@ -583,15 +664,16 @@ async function borrowBookOnline(bookId, studentUser, requestedDuration = null) {
       throw err;
     }
 
-    // 3. Check active loan count (limit: 5 books per student)
+    // 3. Check active loan count against dynamic library policy quota
+    const maxBooksQuota = config.max_books_per_student || 5;
     const [activeLoans] = await conn.query(`
       SELECT COUNT(*) as count FROM transactions 
       WHERE user_id = ? AND status = 'Issued'
-    `, [studentUser.id]);
+    `, [student.id]);
 
-    if (activeLoans[0].count >= 5) {
+    if (activeLoans[0].count >= maxBooksQuota) {
       await conn.rollback();
-      const err = new Error('Borrowing limit reached: You cannot hold more than 5 active books simultaneously. Please return a book first.');
+      const err = new Error(`Borrowing limit reached: You cannot hold more than ${maxBooksQuota} active books simultaneously under current library policy. Please return a book first.`);
       err.statusCode = 400;
       throw err;
     }
@@ -606,7 +688,7 @@ async function borrowBookOnline(bookId, studentUser, requestedDuration = null) {
     const [insertResult] = await conn.query(`
       INSERT INTO transactions (book_id, user_id, issue_date, due_date, status, duration, notes)
       VALUES (?, ?, ?, ?, 'Issued', ?, ?)
-    `, [bookId, studentUser.id, issueDateStr, dueDateStr, durationLabel, `Online borrowing (${config.mode} mode - ${durationLabel})`]);
+    `, [bookId, student.id, issueDateStr, dueDateStr, durationLabel, `Online borrowing (${config.mode} mode - ${durationLabel})`]);
 
     // 5. Decrement available copies atomically
     await conn.query(`
@@ -618,7 +700,21 @@ async function borrowBookOnline(bookId, studentUser, requestedDuration = null) {
     // 6. Commit transaction
     await conn.commit();
 
-    console.log(`[Online Borrow] Student ${studentUser.name} borrowed "${book.title}" for ${durationLabel} (Tx #${insertResult.insertId}, Due: ${dueDateStr})`);
+    // 7. Dispatch Librarian Notification for real-time visibility
+    await db.query(`
+      INSERT INTO notifications (user_id, transaction_id, type, recipient, message, status, provider, title, is_read)
+      VALUES (?, ?, 'LibrarianAlert', 'librarian', ?, 'Delivered', 'CampusSystem', 'New Online Book Borrowing', 0)
+    `, [student.id, insertResult.insertId, `Student ${student.name} (${student.student_id || student.email || 'ID#' + student.id}) borrowed "${book.title}". Due date: ${dueDateStr}.`]).catch(() => {});
+
+    // Low stock notification if stock is now <= 1
+    if (book.available_copies - 1 <= 1) {
+      await db.query(`
+        INSERT INTO notifications (user_id, transaction_id, type, recipient, message, status, provider, title, is_read)
+        VALUES (?, ?, 'LibrarianAlert', 'librarian', ?, 'Delivered', 'CampusSystem', 'Low Stock Alert', 0)
+      `, [student.id, insertResult.insertId, `Book "${book.title}" (${book.category}) is low on stock: only ${Math.max(0, book.available_copies - 1)} copies remaining on shelf.`]).catch(() => {});
+    }
+
+    console.log(`[Online Borrow] Student ${student.name} borrowed "${book.title}" for ${durationLabel} (Tx #${insertResult.insertId}, Due: ${dueDateStr})`);
 
     return {
       success: true,
@@ -831,7 +927,209 @@ async function markAllNotificationsAsRead(userId) {
   return true;
 }
 
+/**
+ * Feature 2: Dedicated Librarian Notification Engine
+ * Aggregates all library activity alerts:
+ * - Online & desk borrowing events
+ * - Book return events
+ * - Real-time overdue alerts for unreturned books
+ * - Upcoming due date reminders
+ * - Low-stock book warnings
+ * - New student registration notifications
+ */
+async function getLibrarianNotifications() {
+  const notifications = [];
+
+  // 1. Fetch persisted database alerts where recipient = 'librarian' or type = 'LibrarianAlert'
+  try {
+    const rows = await db.query(`
+      SELECT 
+        n.id,
+        n.user_id,
+        n.transaction_id,
+        COALESCE(n.title, 'Library Activity Notice') as title,
+        n.type,
+        n.recipient,
+        n.message,
+        n.status,
+        n.provider,
+        n.is_read,
+        n.read_at,
+        DATE_FORMAT(n.created_at, '%Y-%m-%d %H:%i:%s') as created_at,
+        u.name as student_name,
+        u.student_id,
+        u.department as student_department,
+        b.title as book_title,
+        b.author as book_author,
+        b.id as book_id,
+        t.due_date
+      FROM notifications n
+      LEFT JOIN users u ON n.user_id = u.id
+      LEFT JOIN transactions t ON n.transaction_id = t.id
+      LEFT JOIN books b ON t.book_id = b.id
+      WHERE n.recipient = 'librarian' OR n.type = 'LibrarianAlert'
+      ORDER BY n.id DESC
+      LIMIT 100
+    `);
+
+    (rows || []).forEach(r => {
+      const alertId = `db-${r.id}`;
+      if (!librarianClearedAlerts.has(alertId) && !librarianClearedAlerts.has(String(r.id))) {
+        notifications.push({
+          id: alertId,
+          db_id: r.id,
+          title: r.title,
+          student_name: r.student_name || 'Student Borrower',
+          student_id: r.student_id || '',
+          student_department: r.student_department || '',
+          book_title: r.book_title || '',
+          book_id: r.book_id,
+          transaction_id: r.transaction_id,
+          user_id: r.user_id,
+          type: r.type || 'LibrarianAlert',
+          message: r.message,
+          due_date: r.due_date,
+          created_at: r.created_at || new Date().toISOString().replace('T', ' ').slice(0, 19),
+          is_read: Boolean(r.is_read) || librarianReadAlerts.has(alertId) || librarianReadAlerts.has(String(r.id)),
+          is_overdue: (r.title || '').toLowerCase().includes('overdue')
+        });
+      }
+    });
+  } catch (err) {
+    console.warn('[Librarian Notifs DB Error]:', err.message);
+  }
+
+  // 2. Real-time overdue book alerts (Every active unreturned loan past its due date)
+  try {
+    const allLoans = await getAllLoans({ status: 'Issued' });
+    const overdueLoans = allLoans.filter(l => l.is_overdue);
+
+    overdueLoans.forEach(l => {
+      const alertId = `overdue-${l.transaction_id}`;
+      if (!librarianClearedAlerts.has(alertId)) {
+        notifications.push({
+          id: alertId,
+          transaction_id: l.transaction_id,
+          user_id: l.user_id,
+          student_name: l.student_name,
+          student_id: l.student_id,
+          student_department: l.student_department,
+          book_title: l.title,
+          book_author: l.author,
+          book_id: l.book_id,
+          type: 'Overdue',
+          title: '🚨 Overdue Book Alert',
+          message: `Student ${l.student_name} (${l.student_id || 'ID#' + l.user_id}) has not returned "${l.title}" on time. Due date was ${l.due_date} (${l.days_overdue} days overdue). Accrued fine: ₹${l.accrued_fine || (l.days_overdue * 5)}.`,
+          due_date: l.due_date,
+          created_at: l.due_date,
+          is_read: librarianReadAlerts.has(alertId),
+          is_overdue: true,
+          days_overdue: l.days_overdue
+        });
+      }
+    });
+
+    // 3. Upcoming due date reminders (loans due within 3 days, not yet overdue)
+    const dueSoonLoans = allLoans.filter(l => !l.is_overdue && l.days_left !== undefined && l.days_left <= 3);
+    dueSoonLoans.forEach(l => {
+      const alertId = `duesoon-${l.transaction_id}`;
+      if (!librarianClearedAlerts.has(alertId)) {
+        notifications.push({
+          id: alertId,
+          transaction_id: l.transaction_id,
+          user_id: l.user_id,
+          student_name: l.student_name,
+          student_id: l.student_id,
+          student_department: l.student_department,
+          book_title: l.title,
+          book_author: l.author,
+          book_id: l.book_id,
+          type: 'DueSoon',
+          title: '📅 Upcoming Due Date Notice',
+          message: `"${l.title}" issued to ${l.student_name} is due in ${l.days_left || 1} day(s) on ${l.due_date}.`,
+          due_date: l.due_date,
+          created_at: l.issue_date,
+          is_read: librarianReadAlerts.has(alertId),
+          is_overdue: false
+        });
+      }
+    });
+  } catch (err) {
+    console.warn('[Librarian Notifs Overdue Error]:', err.message);
+  }
+
+  // 4. Low stock alerts (catalog titles with <= 1 copy available)
+  try {
+    const lowStockBooks = await db.query('SELECT id, title, author, category, available_copies, total_copies FROM books WHERE available_copies <= 1 LIMIT 25');
+    (lowStockBooks || []).forEach(b => {
+      const alertId = `lowstock-${b.id}`;
+      if (!librarianClearedAlerts.has(alertId)) {
+        notifications.push({
+          id: alertId,
+          book_id: b.id,
+          book_title: b.title,
+          book_author: b.author,
+          type: 'LowStock',
+          title: '⚠️ Low Stock Alert',
+          message: `Book "${b.title}" (${b.category}) is low on stock: only ${b.available_copies} of ${b.total_copies} copies remaining on shelf.`,
+          created_at: 'Shelf Inventory',
+          is_read: librarianReadAlerts.has(alertId),
+          is_overdue: false
+        });
+      }
+    });
+  } catch (err) {
+    console.warn('[Librarian Notifs Stock Error]:', err.message);
+  }
+
+  // Calculate unread count
+  const unreadCount = notifications.filter(n => !n.is_read).length;
+
+  return {
+    success: true,
+    total: notifications.length,
+    unread_count: unreadCount,
+    unreadCount: unreadCount,
+    notifications: notifications
+  };
+}
+
+/**
+ * Mark a specific librarian notification as read
+ */
+async function markLibrarianNotificationAsRead(id) {
+  librarianReadAlerts.add(String(id));
+  if (String(id).startsWith('db-')) {
+    const numId = parseInt(String(id).replace('db-', ''), 10);
+    await db.query('UPDATE notifications SET is_read = TRUE, read_at = NOW() WHERE id = ?', [numId]).catch(() => {});
+  } else if (!isNaN(Number(id))) {
+    await db.query('UPDATE notifications SET is_read = TRUE, read_at = NOW() WHERE id = ?', [Number(id)]).catch(() => {});
+  }
+  return { success: true, message: 'Notification marked as read' };
+}
+
+/**
+ * Mark all librarian notifications as read
+ */
+async function markAllLibrarianNotificationsAsRead() {
+  const current = await getLibrarianNotifications();
+  current.notifications.forEach(n => librarianReadAlerts.add(String(n.id)));
+  await db.query("UPDATE notifications SET is_read = TRUE, read_at = NOW() WHERE recipient = 'librarian' OR type = 'LibrarianAlert'").catch(() => {});
+  return { success: true, message: 'All librarian notifications marked as read' };
+}
+
+/**
+ * Clear all librarian notifications
+ */
+async function clearLibrarianNotifications() {
+  const current = await getLibrarianNotifications();
+  current.notifications.forEach(n => librarianClearedAlerts.add(String(n.id)));
+  await db.query("DELETE FROM notifications WHERE recipient = 'librarian' OR type = 'LibrarianAlert'").catch(() => {});
+  return { success: true, message: 'Librarian notifications cleared' };
+}
+
 module.exports = {
+  getActivePolicies,
   getBorrowingConfig,
   setBorrowingMode,
   computeLoanStatus,
@@ -845,5 +1143,9 @@ module.exports = {
   updateLoanDetails,
   getStudentNotifications,
   markNotificationAsRead,
-  markAllNotificationsAsRead
+  markAllNotificationsAsRead,
+  getLibrarianNotifications,
+  markLibrarianNotificationAsRead,
+  markAllLibrarianNotificationsAsRead,
+  clearLibrarianNotifications
 };
