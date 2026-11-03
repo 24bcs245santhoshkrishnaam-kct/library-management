@@ -44,7 +44,8 @@ import {
   MessageSquare,
   Building2,
   CheckCircle,
-  FileText
+  FileText,
+  Menu
 } from 'lucide-react';
 
 export default function LibrarianDashboard() {
@@ -52,6 +53,7 @@ export default function LibrarianDashboard() {
 
   // Navigation tab: 'overdue' | 'circulation' | 'inventory' | 'sms_logs'
   const [activeTab, setActiveTab] = useState('overdue');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Loans state
   const [loans, setLoans] = useState([]);
@@ -431,8 +433,16 @@ export default function LibrarianDashboard() {
 
   return (
     <div className="portal-layout">
+      {/* Mobile Sidebar Backdrop */}
+      {sidebarOpen && (
+        <div 
+          className="portal-sidebar-backdrop d-lg-none"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Librarian Sidebar */}
-      <aside className="portal-sidebar">
+      <aside className={`portal-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="portal-sidebar-header">
           <div 
             style={{
@@ -447,10 +457,18 @@ export default function LibrarianDashboard() {
           >
             <ShieldCheck size={22} className="text-white" />
           </div>
-          <div>
+          <div className="flex-grow-1">
             <h6 className="fw-bold mb-0 text-navy-900" style={{ fontSize: '0.94rem' }}>KCT AI Smart Library</h6>
             <span className="text-muted" style={{ fontSize: '0.72rem' }}>Librarian Circulation</span>
           </div>
+          <button 
+            type="button" 
+            className="btn btn-sm btn-light border d-lg-none p-1 rounded-2"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Close Sidebar"
+          >
+            <X size={16} />
+          </button>
         </div>
 
         <nav className="portal-sidebar-nav">
@@ -458,7 +476,7 @@ export default function LibrarianDashboard() {
           <button
             type="button"
             className={`sidebar-nav-item ${activeTab === 'overdue' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('overdue'); setOverdueFilter('all'); }}
+            onClick={() => { setActiveTab('overdue'); setOverdueFilter('all'); setSidebarOpen(false); }}
           >
             <AlertTriangle size={18} className="text-danger" />
             <span>Overdue Tracker</span>
@@ -473,7 +491,7 @@ export default function LibrarianDashboard() {
           <button
             type="button"
             className={`sidebar-nav-item ${activeTab === 'circulation' ? 'active' : ''}`}
-            onClick={() => setActiveTab('circulation')}
+            onClick={() => { setActiveTab('circulation'); setSidebarOpen(false); }}
           >
             <BookOpen size={18} />
             <span>All Circulation Loans</span>
@@ -483,7 +501,7 @@ export default function LibrarianDashboard() {
           <button
             type="button"
             className={`sidebar-nav-item ${activeTab === 'inventory' ? 'active' : ''}`}
-            onClick={() => setActiveTab('inventory')}
+            onClick={() => { setActiveTab('inventory'); setSidebarOpen(false); }}
           >
             <Layers size={18} />
             <span>Book Inventory</span>
@@ -493,7 +511,7 @@ export default function LibrarianDashboard() {
           <button
             type="button"
             className={`sidebar-nav-item ${activeTab === 'sms_logs' ? 'active' : ''}`}
-            onClick={() => setActiveTab('sms_logs')}
+            onClick={() => { setActiveTab('sms_logs'); setSidebarOpen(false); }}
           >
             <MessageSquare size={18} />
             <span>SMS Alert History</span>
@@ -543,6 +561,15 @@ export default function LibrarianDashboard() {
       <main className="portal-content">
         <header className="portal-topbar">
           <div className="d-flex align-items-center gap-2">
+            <button
+              type="button"
+              className="btn btn-sm btn-light border d-lg-none d-flex align-items-center justify-content-center p-2 rounded-3"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              aria-label="Toggle Navigation Menu"
+              title="Toggle Menu"
+            >
+              <Menu size={18} className="text-dark" />
+            </button>
             <span className="badge bg-danger-subtle text-danger px-2.5 py-1 rounded-pill small fw-semibold">
               Librarian Portal
             </span>

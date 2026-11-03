@@ -269,6 +269,46 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+.portal-sidebar-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(3px);
+  z-index: 998;
+}
+
+/* ==========================================================================
+   All-Device Notification Styling
+   ========================================================================== */
+.notif-card {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.notif-card:hover {
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.08) !important;
+}
+
+@media (max-width: 576px) {
+  .notif-header-wrap {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+  .notif-footer-wrap {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .notif-footer-wrap button {
+    width: 100% !important;
+  }
+}
+
 /* ==========================================================================
    STRICT REQUIREMENT: Book Grid & Cards (Picture + Book Name Only!)
    ========================================================================== */

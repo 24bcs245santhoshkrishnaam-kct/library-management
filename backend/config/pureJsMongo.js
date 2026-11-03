@@ -211,6 +211,17 @@ class PureJsCollection {
     return null;
   }
 
+  async distinct(field, filter = {}) {
+    const matched = this.docs.filter(d => matchFilter(d, filter));
+    const set = new Set();
+    for (const d of matched) {
+      if (d[field] !== undefined && d[field] !== null && d[field] !== '') {
+        set.add(d[field]);
+      }
+    }
+    return Array.from(set);
+  }
+
   aggregate(pipeline = []) {
     let current = JSON.parse(JSON.stringify(this.docs));
     const parentDb = this.db;
@@ -290,6 +301,30 @@ class PureJsCollection {
               out[k] = doc[k];
             } else if (typeof v === 'string' && v.startsWith('$')) {
               out[k] = doc[v.slice(1)];
+            } else if (v && typeof v === 'object' && !Array.isArray(v)) {
+              if (v.$ifNull) {
+                const [f, fallback] = v.$ifNull;
+                const fieldVal = typeof f === 'string' && f.startsWith('$') ? doc[f.slice(1)] : f;
+                out[k] = (fieldVal !== null && fieldVal !== undefined) ? fieldVal : fallback;
+              } else if (v.$cond) {
+                const [cond, thenVal, elseVal] = v.$cond;
+                let condMet = false;
+                if (cond.$or) {
+                  condMet = cond.$or.some(c => {
+                    if (c.$eq) {
+                      const [cf, target] = c.$eq;
+                      const cVal = typeof cf === 'string' && cf.startsWith('$') ? doc[cf.slice(1)] : cf;
+                      return cVal === target;
+                    }
+                    return false;
+                  });
+                }
+                out[k] = condMet ? thenVal : elseVal;
+              } else if (v.$literal !== undefined) {
+                out[k] = v.$literal;
+              } else {
+                out[k] = v;
+              }
             } else {
               out[k] = v;
             }

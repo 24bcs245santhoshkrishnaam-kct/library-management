@@ -53,7 +53,8 @@ import {
   DollarSign,
   Award,
   Compass,
-  Globe
+  Globe,
+  Menu
 } from 'lucide-react';
 
 export default function StudentDashboard({ onAskChatbot }) {
@@ -61,6 +62,7 @@ export default function StudentDashboard({ onAskChatbot }) {
 
   // Active navigation view: 'dashboard' | 'browse' | 'ai' | 'loans' | 'due' | 'history' | 'profile' | 'notifications'
   const [activeNav, setActiveNav] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Loans and stats
   const [loans, setLoans] = useState([]);
@@ -402,8 +404,16 @@ export default function StudentDashboard({ onAskChatbot }) {
 
   return (
     <div className="portal-layout">
+      {/* Mobile Sidebar Backdrop */}
+      {sidebarOpen && (
+        <div 
+          className="portal-sidebar-backdrop d-lg-none"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Student Left Sidebar */}
-      <aside className="portal-sidebar">
+      <aside className={`portal-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="portal-sidebar-header">
           <div 
             style={{
@@ -418,10 +428,18 @@ export default function StudentDashboard({ onAskChatbot }) {
           >
             <Library size={22} className="text-white" />
           </div>
-          <div>
+          <div className="flex-grow-1">
             <h6 className="fw-bold mb-0 text-navy-900" style={{ fontSize: '0.94rem' }}>KCT AI Smart Library</h6>
             <span className="text-muted" style={{ fontSize: '0.72rem' }}>Student Portal</span>
           </div>
+          <button 
+            type="button" 
+            className="btn btn-sm btn-light border d-lg-none p-1 rounded-2"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Close Sidebar"
+          >
+            <X size={16} />
+          </button>
         </div>
 
         {/* Sidebar Nav Items */}
@@ -429,7 +447,7 @@ export default function StudentDashboard({ onAskChatbot }) {
           <button
             type="button"
             className={`sidebar-nav-item ${activeNav === 'dashboard' ? 'active' : ''}`}
-            onClick={() => setActiveNav('dashboard')}
+            onClick={() => { setActiveNav('dashboard'); setSidebarOpen(false); }}
           >
             <LayoutDashboard size={18} />
             <span>Dashboard</span>
@@ -438,7 +456,7 @@ export default function StudentDashboard({ onAskChatbot }) {
           <button
             type="button"
             className={`sidebar-nav-item ${activeNav === 'browse' ? 'active' : ''}`}
-            onClick={() => setActiveNav('browse')}
+            onClick={() => { setActiveNav('browse'); setSidebarOpen(false); }}
           >
             <BookOpen size={18} />
             <span>Browse Books</span>
@@ -447,7 +465,7 @@ export default function StudentDashboard({ onAskChatbot }) {
           <button
             type="button"
             className={`sidebar-nav-item ${activeNav === 'ai' ? 'active' : ''}`}
-            onClick={() => setActiveNav('ai')}
+            onClick={() => { setActiveNav('ai'); setSidebarOpen(false); }}
           >
             <Sparkles size={18} />
             <span>AI Recommendations</span>
@@ -456,7 +474,7 @@ export default function StudentDashboard({ onAskChatbot }) {
           <button
             type="button"
             className={`sidebar-nav-item ${activeNav === 'loans' ? 'active' : ''}`}
-            onClick={() => setActiveNav('loans')}
+            onClick={() => { setActiveNav('loans'); setSidebarOpen(false); }}
           >
             <Bookmark size={18} />
             <span>My Borrowed Books</span>
@@ -470,7 +488,7 @@ export default function StudentDashboard({ onAskChatbot }) {
           <button
             type="button"
             className={`sidebar-nav-item ${activeNav === 'due' ? 'active' : ''}`}
-            onClick={() => setActiveNav('due')}
+            onClick={() => { setActiveNav('due'); setSidebarOpen(false); }}
           >
             <Calendar size={18} />
             <span>Due Dates</span>
@@ -484,7 +502,7 @@ export default function StudentDashboard({ onAskChatbot }) {
           <button
             type="button"
             className={`sidebar-nav-item ${activeNav === 'history' ? 'active' : ''}`}
-            onClick={() => setActiveNav('history')}
+            onClick={() => { setActiveNav('history'); setSidebarOpen(false); }}
           >
             <History size={18} />
             <span>Borrowing History</span>
@@ -498,7 +516,7 @@ export default function StudentDashboard({ onAskChatbot }) {
           <button
             type="button"
             className={`sidebar-nav-item ${activeNav === 'profile' ? 'active' : ''}`}
-            onClick={() => setActiveNav('profile')}
+            onClick={() => { setActiveNav('profile'); setSidebarOpen(false); }}
           >
             <User size={18} />
             <span>My Profile</span>
@@ -507,7 +525,7 @@ export default function StudentDashboard({ onAskChatbot }) {
           <button
             type="button"
             className={`sidebar-nav-item ${activeNav === 'notifications' ? 'active' : ''} d-flex align-items-center justify-content-between`}
-            onClick={() => setActiveNav('notifications')}
+            onClick={() => { setActiveNav('notifications'); setSidebarOpen(false); }}
           >
             <div className="d-flex align-items-center gap-2.5">
               <Bell size={18} />
@@ -566,6 +584,15 @@ export default function StudentDashboard({ onAskChatbot }) {
         {/* Top bar header */}
         <header className="portal-topbar">
           <div className="d-flex align-items-center gap-2">
+            <button
+              type="button"
+              className="btn btn-sm btn-light border d-lg-none d-flex align-items-center justify-content-center p-2 rounded-3"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              aria-label="Toggle Navigation Menu"
+              title="Toggle Menu"
+            >
+              <Menu size={18} className="text-dark" />
+            </button>
             <span className="badge-active-teal px-2.5 py-1 rounded-pill small fw-semibold">
               Student Workspace
             </span>
@@ -2058,13 +2085,13 @@ export default function StudentDashboard({ onAskChatbot }) {
                   {notificationsList.map(notif => (
                     <div 
                       key={notif.id} 
-                      className={`p-3.5 rounded-3 border bg-white shadow-xs transition-all ${!notif.is_read ? 'border-teal' : ''}`}
+                      className={`notif-card p-3.5 rounded-3 border bg-white shadow-xs transition-all ${!notif.is_read ? 'border-teal' : ''}`}
                       style={{ 
                         borderLeft: notif.type === 'InApp' ? '4px solid #0d9488' : '4px solid #f59e0b',
                         backgroundColor: !notif.is_read ? '#f8fafc' : '#ffffff'
                       }}
                     >
-                      <div className="d-flex align-items-start justify-content-between flex-wrap gap-2 mb-2">
+                      <div className="notif-header-wrap d-flex align-items-start justify-content-between flex-wrap gap-2 mb-2">
                         <div className="d-flex align-items-center gap-2 flex-wrap">
                           <span className="fw-bold text-navy-900 small">
                             {notif.title || 'Library Book Overdue Reminder'}
@@ -2103,7 +2130,7 @@ export default function StudentDashboard({ onAskChatbot }) {
                         📌 <strong>Action Instructions:</strong> {notif.return_instructions || 'Please return this book to the KCT AI Smart Library circulation desk or renewal kiosk immediately to prevent additional daily fines.'}
                       </div>
 
-                      <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 pt-2 border-top text-secondary" style={{ fontSize: '0.74rem' }}>
+                      <div className="notif-footer-wrap d-flex align-items-center justify-content-between flex-wrap gap-2 pt-2 border-top text-secondary" style={{ fontSize: '0.74rem' }}>
                         <div className="d-flex align-items-center gap-3 flex-wrap">
                           {notif.due_date && (
                             <span>Due Date: <strong className="text-danger">{notif.due_date_formatted || notif.due_date}</strong></span>

@@ -34,7 +34,9 @@ import {
   Building2,
   Clock,
   Layers,
-  BarChart3
+  BarChart3,
+  Menu,
+  X
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -42,6 +44,7 @@ export default function AdminDashboard() {
 
   // Navigation: 'overview' | 'students' | 'librarians' | 'policies' | 'audit'
   const [activeTab, setActiveTab] = useState('overview');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Stats state
   const [stats, setStats] = useState(null);
@@ -321,8 +324,16 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
 
   return (
     <div className="portal-layout">
+      {/* Mobile Sidebar Backdrop */}
+      {sidebarOpen && (
+        <div 
+          className="portal-sidebar-backdrop d-lg-none"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Admin Sidebar */}
-      <aside className="portal-sidebar">
+      <aside className={`portal-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="portal-sidebar-header">
           <div 
             style={{
@@ -337,17 +348,25 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
           >
             <Settings size={22} className="text-white" />
           </div>
-          <div>
+          <div className="flex-grow-1">
             <h6 className="fw-bold mb-0 text-navy-900" style={{ fontSize: '0.94rem' }}>KCT AI Smart Library</h6>
             <span className="text-muted" style={{ fontSize: '0.72rem' }}>Chief Administrator</span>
           </div>
+          <button 
+            type="button" 
+            className="btn btn-sm btn-light border d-lg-none p-1 rounded-2"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Close Sidebar"
+          >
+            <X size={16} />
+          </button>
         </div>
 
         <nav className="portal-sidebar-nav">
           <button
             type="button"
             className={`sidebar-nav-item ${activeTab === 'overview' ? 'active' : ''}`}
-            onClick={() => setActiveTab('overview')}
+            onClick={() => { setActiveTab('overview'); setSidebarOpen(false); }}
           >
             <BarChart3 size={18} />
             <span>Overview & Analytics</span>
@@ -356,7 +375,7 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
           <button
             type="button"
             className={`sidebar-nav-item ${activeTab === 'students' ? 'active' : ''}`}
-            onClick={() => setActiveTab('students')}
+            onClick={() => { setActiveTab('students'); setSidebarOpen(false); }}
           >
             <GraduationCap size={18} />
             <span>Manage Students (20)</span>
@@ -365,7 +384,7 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
           <button
             type="button"
             className={`sidebar-nav-item ${activeTab === 'librarians' ? 'active' : ''}`}
-            onClick={() => setActiveTab('librarians')}
+            onClick={() => { setActiveTab('librarians'); setSidebarOpen(false); }}
           >
             <ShieldCheck size={18} />
             <span>Manage Librarians</span>
@@ -374,7 +393,7 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
           <button
             type="button"
             className={`sidebar-nav-item ${activeTab === 'policies' ? 'active' : ''}`}
-            onClick={() => setActiveTab('policies')}
+            onClick={() => { setActiveTab('policies'); setSidebarOpen(false); }}
           >
             <Sliders size={18} />
             <span>Library Policies</span>
@@ -383,7 +402,7 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
           <button
             type="button"
             className={`sidebar-nav-item ${activeTab === 'audit' ? 'active' : ''}`}
-            onClick={() => setActiveTab('audit')}
+            onClick={() => { setActiveTab('audit'); setSidebarOpen(false); }}
           >
             <Activity size={18} />
             <span>Audit Activity Trail</span>
@@ -433,6 +452,15 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
       <main className="portal-content">
         <header className="portal-topbar">
           <div className="d-flex align-items-center gap-2">
+            <button
+              type="button"
+              className="btn btn-sm btn-light border d-lg-none d-flex align-items-center justify-content-center p-2 rounded-3"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              aria-label="Toggle Navigation Menu"
+              title="Toggle Menu"
+            >
+              <Menu size={18} className="text-dark" />
+            </button>
             <span className="badge bg-primary-subtle text-primary px-2.5 py-1 rounded-pill small fw-semibold">
               Administrator Console
             </span>
