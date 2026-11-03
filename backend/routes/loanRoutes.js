@@ -8,9 +8,9 @@ router.get('/borrowing-mode', authenticateToken, loanController.getBorrowingMode
 router.post('/borrowing-mode', authenticateToken, requireLibrarian, loanController.updateBorrowingMode);
 
 // Student borrowing status endpoints (Strictly protected - student sees only their own data)
-router.get('/my', authenticateToken, loanController.getMyLoans);
-router.get('/my/status', authenticateToken, loanController.getMyStatus);
-router.get('/my/notifications', authenticateToken, loanController.getStudentNotifications);
+router.get(['/my', '/my-loans'], authenticateToken, loanController.getMyLoans);
+router.get(['/my/status', '/my-status'], authenticateToken, loanController.getMyStatus);
+router.get(['/my/notifications', '/my-notifications'], authenticateToken, loanController.getStudentNotifications);
 router.put('/my/notifications/read-all', authenticateToken, loanController.markAllNotificationsAsRead);
 router.put('/my/notifications/:id/read', authenticateToken, loanController.markNotificationAsRead);
 router.post('/borrow', authenticateToken, loanController.borrowOnline);

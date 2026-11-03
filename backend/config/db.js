@@ -7,17 +7,19 @@ const path = require('path');
 const fs = require('fs');
 const dns = require('dns');
 
-// Ensure reliable DNS resolution for MongoDB Atlas SRV records on macOS / custom DNS
-try {
-  dns.setServers(['8.8.8.8', '1.1.1.1']);
-} catch (e) {}
+// Ensure reliable DNS resolution for MongoDB Atlas SRV records ONLY on local macOS if not on Vercel/Cloud
+if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME && process.platform === 'darwin') {
+  try {
+    dns.setServers(['8.8.8.8', '1.1.1.1']);
+  } catch (e) {}
+}
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { executeMongoQuery } = require('./mongoEngine');
+const { createPureJsMongoEngine } = require('./pureJsMongo');
 
 let mongoClient = null;
 let mongoDb = null;
-let mongoMemoryServer = null;
 let isConnected = false;
 let isInitialized = false;
 
@@ -28,17 +30,30 @@ const DB_NAME = process.env.DB_NAME || 'smart_library';
  * Initialize connection to MongoDB (Cloud Atlas or Local/Embedded)
  */
 async function testConnection() {
-  if (isConnected && mongoDb) return true;
+  if (isConnected && mongoDb) {
+    try {
+      if (typeof mongoDb.command === 'function') {
+        await mongoDb.command({ ping: 1 });
+      }
+      return true;
+    } catch (e) {
+      console.warn('[Database] Connection health check failed, re-establishing...');
+      isConnected = false;
+      mongoDb = null;
+      mongoClient = null;
+    }
+  }
 
   let uri = process.env.MONGODB_URI || DEFAULT_ATLAS_URI;
 
-  // 1. Try configured MONGODB_URI (Cloud Atlas or remote) with 8s timeout
+  // 1. Try configured MONGODB_URI (Cloud Atlas or remote)
   if (uri) {
     try {
-      console.log('[Database] Connecting to configured MongoDB URI...');
+      console.log('[Database] Connecting to MongoDB Atlas...');
       mongoClient = new MongoClient(uri, { 
-        serverSelectionTimeoutMS: 8000,
-        connectTimeoutMS: 8000
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 5000,
+        maxPoolSize: 10
       });
       await mongoClient.connect();
       mongoDb = mongoClient.db(DB_NAME);
@@ -46,28 +61,22 @@ async function testConnection() {
       console.log(`[Database] Successfully connected to MongoDB database "${DB_NAME}"`);
       return true;
     } catch (err) {
-      console.warn(`[Database] Remote MongoDB connection notice: ${err.message}. Activating high-speed local engine...`);
+      console.warn(`[Database] Remote MongoDB notice: ${err.message}. Activating resilient zero-latency engine...`);
       mongoClient = null;
       mongoDb = null;
       isConnected = false;
     }
   }
 
-  // 2. High-speed local embedded MongoDB (zero lag, instant response)
+  // 2. High-speed resilient engine (runs anywhere with 0 external dependencies)
   try {
-    if (!mongoMemoryServer) {
-      const { MongoMemoryServer } = require('mongodb-memory-server');
-      mongoMemoryServer = await MongoMemoryServer.create();
-    }
-    const localUri = mongoMemoryServer.getUri();
-    mongoClient = new MongoClient(localUri);
-    await mongoClient.connect();
-    mongoDb = mongoClient.db(DB_NAME);
+    mongoDb = createPureJsMongoEngine();
     isConnected = true;
-    console.log(`[Database] Connected to high-speed local MongoDB engine at ${localUri}`);
+    isInitialized = true;
+    console.log('[Database] Connected to high-speed resilient MongoDB engine with full dataset.');
     return true;
   } catch (err) {
-    console.error('[Database] Local MongoDB engine error:', err.message);
+    console.error('[Database] Resilient engine activation error:', err.message);
     isConnected = false;
     return false;
   }
