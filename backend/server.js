@@ -50,7 +50,8 @@ app.get(['/api/health', '/health'], (req, res) => {
     database: 'mongodb',
     timestamp: new Date().toISOString(),
     mongodb_connected: db.isConnected,
-    mysql_connected: db.isConnected,
+    atlas_connected: db.isAtlasConnected,
+    database_engine: db.isAtlasConnected ? 'MongoDB Atlas (Cloud)' : 'Resilient High-Speed MongoDB Engine',
     ai_provider: process.env.AI_PROVIDER || 'gemini',
     ai_key_configured: Boolean(process.env.AI_API_KEY && process.env.AI_API_KEY.length > 0)
   });
