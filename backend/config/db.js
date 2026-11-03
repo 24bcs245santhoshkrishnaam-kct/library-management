@@ -26,6 +26,7 @@ let mongoClient = global._mongoClient || null;
 let mongoDb = global._mongoDb || null;
 let isConnected = Boolean(global._mongoClient);
 let isInitialized = Boolean(global._mongoDbInitialized);
+let lastAtlasError = null;
 
 /**
  * Initialize connection to MongoDB (Cloud Atlas or Local/Embedded)
@@ -47,15 +48,15 @@ async function testConnection() {
     }
   }
 
-  let uri = process.env.MONGODB_URI || DEFAULT_ATLAS_URI;
+  let uri = (process.env.MONGODB_URI || DEFAULT_ATLAS_URI || '').trim().replace(/^["']|["']$/g, '');
 
   // 1. Try configured MONGODB_URI (Cloud Atlas or remote)
   if (uri) {
     try {
       console.log('[Database] Connecting to MongoDB Atlas...');
       mongoClient = new MongoClient(uri, { 
-        serverSelectionTimeoutMS: 5000,
-        connectTimeoutMS: 5000,
+        serverSelectionTimeoutMS: 10000,
+        connectTimeoutMS: 10000,
         maxPoolSize: 10,
         retryWrites: true
       });
@@ -64,9 +65,11 @@ async function testConnection() {
       isConnected = true;
       global._mongoClient = mongoClient;
       global._mongoDb = mongoDb;
+      lastAtlasError = null;
       console.log(`[Database] Successfully connected to MongoDB database "${DB_NAME}"`);
       return true;
     } catch (err) {
+      lastAtlasError = err.message;
       console.warn(`[Database] Remote MongoDB notice: ${err.message}. Activating resilient zero-latency engine...`);
       mongoClient = null;
       mongoDb = null;
@@ -234,5 +237,6 @@ module.exports = {
   getClient: () => mongoClient,
   collection: (name) => mongoDb ? mongoDb.collection(name) : null,
   get isConnected() { return Boolean(isConnected || mongoClient || mongoDb || global._mongoClient || global._mongoDb); },
-  get isAtlasConnected() { return Boolean(mongoClient || global._mongoClient); }
+  get isAtlasConnected() { return Boolean(mongoClient || global._mongoClient); },
+  getLastAtlasError: () => lastAtlasError
 };
