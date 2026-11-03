@@ -677,6 +677,17 @@ Karthik Raja,karthik@kct.ac.in,24ECE110,ECE,+91 98403 45678`);
                     onChange={e => setSearchUser(e.target.value)}
                     style={{ width: '220px' }}
                   />
+                  {searchUser && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-light border rounded-pill px-2.5 small text-secondary d-flex align-items-center gap-1"
+                      onClick={() => setSearchUser('')}
+                      title="Clear search"
+                    >
+                      <X size={13} />
+                      <span>Clear</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="btn btn-navy btn-sm d-flex align-items-center gap-1.5"

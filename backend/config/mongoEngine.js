@@ -154,7 +154,7 @@ async function executeMongoQuery(db, sql, params = []) {
         const total = await col.countDocuments();
         const students = await col.countDocuments({ role: 'student' });
         const staff = await col.countDocuments({ role: { $in: ['librarian', 'admin'] } });
-        const res = [{ count: total, total_users: total, student_count: students, staff_count: staff }];
+        const res = [{ count: total, cnt: total, total_users: total, student_count: students, staff_count: staff }];
         res.insertId = 0;
         return res;
       }
@@ -250,10 +250,15 @@ async function executeMongoQuery(db, sql, params = []) {
         return enriched;
       }
 
-      // Find users by role
-      if (upper.includes('WHERE ROLE = ?') || upper.includes("WHERE ROLE = 'STUDENT'")) {
-        const role = params[0] || 'student';
-        const docs = await col.find({ role }).sort({ name: 1 }).toArray();
+      // Find users by role (literal or parameterized)
+      const roleMatch = normalized.match(/WHERE\s+(?:u\.)?role\s*=\s*(?:\?|['"]?([a-zA-Z0-9_]+)['"]?)/i);
+      if (roleMatch && !upper.includes('LEFT JOIN') && !upper.includes('WHERE 1=1')) {
+        const targetRole = roleMatch[1] ? roleMatch[1].toLowerCase() : String(params[0] || 'student').toLowerCase();
+        const limitMatch = normalized.match(/LIMIT\s+(\d+)/i);
+        const limitVal = limitMatch ? parseInt(limitMatch[1], 10) : 0;
+        let cursor = col.find({ role: new RegExp(`^${escapeRegex(targetRole)}$`, 'i') }).sort({ name: 1 });
+        if (limitVal > 0) cursor = cursor.limit(limitVal);
+        const docs = await cursor.toArray();
         docs.insertId = 0;
         return docs;
       }
@@ -383,6 +388,14 @@ async function executeMongoQuery(db, sql, params = []) {
     const col = db.collection('books');
 
     if (upper.startsWith('SELECT')) {
+      // Books general count
+      if (upper.includes('COUNT(*)') && !upper.includes('TOTAL_COPIES')) {
+        const total = await col.countDocuments();
+        const res = [{ count: total, cnt: total, total_titles: total }];
+        res.insertId = 0;
+        return res;
+      }
+
       // Books aggregate stats for admin
       if (upper.includes('COUNT(*)') && upper.includes('TOTAL_COPIES')) {
         const stats = await col.aggregate([
@@ -617,7 +630,18 @@ async function executeMongoQuery(db, sql, params = []) {
         const total = await col.countDocuments();
         const active = await col.countDocuments({ status: 'Issued' });
         const returned = await col.countDocuments({ status: 'Returned' });
-        const res = [{ total_transactions: total, active_loans: active, returned_loans: returned }];
+        const res = [{ total_transactions: total, count: total, cnt: total, active_loans: active, returned_loans: returned }];
+        res.insertId = 0;
+        return res;
+      }
+
+      // General transaction count
+      if (upper.includes('COUNT(*)')) {
+        let filter = {};
+        if (upper.includes("STATUS = 'RETURNED'")) filter.status = 'Returned';
+        else if (upper.includes("STATUS = 'ISSUED'")) filter.status = 'Issued';
+        const total = await col.countDocuments(filter);
+        const res = [{ count: total, cnt: total, total_transactions: total }];
         res.insertId = 0;
         return res;
       }

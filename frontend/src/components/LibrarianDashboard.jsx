@@ -441,14 +441,13 @@ export default function LibrarianDashboard() {
 
   const handleDeleteBook = async (id, title) => {
     if (!window.confirm(`Are you sure you want to remove "${title}" from the library?`)) return;
-    // Immediate optimistic delete in local state
-    setInventory(prev => prev.filter(b => b.id !== id));
     try {
-      await deleteBook(id);
-      setToast({ type: 'success', message: `Book removed successfully.` });
+      const res = await deleteBook(id);
+      setToast({ type: 'success', message: res.message || `Book "${title}" removed successfully.` });
+      setInventory(prev => prev.filter(b => b.id !== id));
       await fetchInventory();
     } catch (err) {
-      setToast({ type: 'danger', message: err.response?.data?.message || 'Failed to delete book' });
+      setToast({ type: 'danger', message: err.response?.data?.message || err.message || 'Failed to delete book' });
       await fetchInventory();
     }
   };
@@ -908,6 +907,21 @@ export default function LibrarianDashboard() {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     style={{ width: '220px' }}
                   />
+                  {(searchQuery || circulationFilter !== 'all' || selectedDept !== 'All') && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-light border rounded-pill px-2.5 small text-secondary d-flex align-items-center gap-1"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setCirculationFilter('all');
+                        setSelectedDept('All');
+                      }}
+                      title="Clear search and reset filters"
+                    >
+                      <X size={13} />
+                      <span>Clear</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1035,56 +1049,52 @@ export default function LibrarianDashboard() {
                                 {isReturned ? (
                                   isLateReturned ? (
                                     <span className="badge-overdue badge-overdue-darkorange">
-                                      <AlertTriangle size={12} /> Returned Overdue ({loan.days_late || loan.days_overdue}d)
+                                      <AlertTriangle size={12} /> RETURNED ({loan.days_late || loan.days_overdue}d Late)
                                     </span>
                                   ) : (
                                     <span className="badge bg-success-subtle text-success px-2.5 py-1 rounded-pill small fw-semibold d-inline-flex align-items-center gap-1">
-                                      <CheckCircle size={12} /> Returned On-Time
+                                      <CheckCircle size={12} /> RETURNED
                                     </span>
                                   )
                                 ) : loan.is_overdue ? (
                                   <span className={`badge-overdue badge-overdue-${loan.overdue_color}`}>
-                                    Active Overdue ({loan.overdue_duration_text || `${loan.days_overdue}d`})
+                                    OVERDUE ({loan.overdue_duration_text || `${loan.days_overdue}d`})
                                   </span>
                                 ) : (
                                   <span className="badge-issued-blue px-2.5 py-1 rounded-pill small fw-semibold">
-                                    Active ({loan.days_left}d left)
+                                    BORROWED ({loan.days_left}d left)
                                   </span>
                                 )}
                               </td>
                               <td>
                                 <div className="d-flex align-items-center gap-1 flex-wrap">
-                                  {loan.status === 'Issued' && (
-                                    <button
-                                      type="button"
-                                      className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1 p-1 px-2.5 rounded-pill small"
-                                      title="Mark book as returned"
-                                      onClick={() => handleReturn(loan.transaction_id, loan.title)}
-                                    >
-                                      <CheckCircle size={12} />
-                                      <span>Return</span>
-                                    </button>
-                                  )}
-                                  {loan.status === 'Issued' && loan.is_overdue && (
-                                    <button
-                                      type="button"
-                                      className="btn btn-sm btn-outline-teal d-flex align-items-center gap-1 p-1 px-2"
-                                      title="Send Overdue SMS Reminder"
-                                      onClick={() => openSingleSMSModal(loan)}
-                                    >
-                                      <Send size={12} />
-                                      <span style={{ fontSize: '0.72rem' }}>SMS</span>
-                                    </button>
-                                  )}
-
-                                  {loan.status === 'Issued' && (
-                                    <button
-                                      type="button"
-                                      className="btn btn-sm btn-outline-navy rounded-pill py-1 px-2.5 small"
-                                      onClick={() => handleReturn(loan.transaction_id, loan.title)}
-                                    >
-                                      Return
-                                    </button>
+                                  {loan.status === 'Issued' ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1 p-1 px-2.5 rounded-pill small fw-semibold"
+                                        title="Mark book as returned"
+                                        onClick={() => handleReturn(loan.transaction_id, loan.title)}
+                                      >
+                                        <CheckCircle size={12} />
+                                        <span>Process Return</span>
+                                      </button>
+                                      {loan.is_overdue && (
+                                        <button
+                                          type="button"
+                                          className="btn btn-sm btn-outline-teal d-flex align-items-center gap-1 p-1 px-2"
+                                          title="Send Overdue SMS Reminder"
+                                          onClick={() => openSingleSMSModal(loan)}
+                                        >
+                                          <Send size={12} />
+                                          <span style={{ fontSize: '0.72rem' }}>SMS</span>
+                                        </button>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="badge bg-light text-muted border px-2 py-0.5 rounded-pill small">
+                                      Completed
+                                    </span>
                                   )}
                                 </div>
                               </td>
@@ -1335,6 +1345,17 @@ export default function LibrarianDashboard() {
                     {dept}
                   </button>
                 ))}
+                {selectedDept !== 'All' && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border rounded-pill px-2.5 small text-secondary d-flex align-items-center gap-1"
+                    onClick={() => setSelectedDept('All')}
+                    title="Reset department filter"
+                  >
+                    <X size={13} />
+                    <span>Clear Filter</span>
+                  </button>
+                )}
               </div>
 
               {loadingInventory ? (

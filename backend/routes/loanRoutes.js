@@ -16,7 +16,6 @@ router.put('/my/notifications/read-all', authenticateToken, loanController.markA
 router.put('/my/notifications/:id/read', authenticateToken, loanController.markNotificationAsRead);
 router.post('/borrow', authenticateToken, loanController.borrowOnline);
 router.post('/:id/renew', authenticateToken, loanController.renewLoan);
-router.post('/:id/return', authenticateToken, loanController.returnLoan);
 
 // Dedicated Librarian Notifications endpoints (Requires librarian authorization)
 router.get('/librarian-notifications', authenticateToken, requireLibrarian, loanController.getLibrarianNotifications);
@@ -24,9 +23,10 @@ router.put('/librarian-notifications/read-all', authenticateToken, requireLibrar
 router.put('/librarian-notifications/:id/read', authenticateToken, requireLibrarian, loanController.markLibrarianNotificationRead);
 router.delete('/librarian-notifications/clear', authenticateToken, requireLibrarian, loanController.clearLibrarianNotifications);
 
-// Librarian management endpoints (Requires librarian authorization)
+// Librarian management & returns (Strictly requires librarian authorization)
 router.get('/', authenticateToken, requireLibrarian, loanController.getAllLoans);
 router.put('/:id', authenticateToken, requireLibrarian, loanController.updateLoan);
 router.post('/issue', authenticateToken, requireLibrarian, loanController.issueLoan);
+router.post('/:id/return', authenticateToken, requireLibrarian, loanController.returnLoan);
 
 module.exports = router;

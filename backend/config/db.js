@@ -18,13 +18,14 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { executeMongoQuery } = require('./mongoEngine');
 const { createPureJsMongoEngine } = require('./pureJsMongo');
 
-let mongoClient = null;
-let mongoDb = null;
-let isConnected = false;
-let isInitialized = false;
-
 const DEFAULT_ATLAS_URI = 'mongodb+srv://24bcs245santhoshkrishnaam_db_user:MSK40215656@cluster0.rg5lyb8.mongodb.net/smart_library?retryWrites=true&w=majority';
-const DB_NAME = process.env.DB_NAME || 'smart_library';
+const DB_NAME = process.env.DATABASE_NAME || process.env.DB_NAME || 'smart_library';
+
+// Serverless global connection caching for Vercel
+let mongoClient = global._mongoClient || null;
+let mongoDb = global._mongoDb || null;
+let isConnected = Boolean(global._mongoClient);
+let isInitialized = Boolean(global._mongoDbInitialized);
 
 /**
  * Initialize connection to MongoDB (Cloud Atlas or Local/Embedded)
@@ -41,6 +42,8 @@ async function testConnection() {
       isConnected = false;
       mongoDb = null;
       mongoClient = null;
+      global._mongoClient = null;
+      global._mongoDb = null;
     }
   }
 
@@ -53,11 +56,14 @@ async function testConnection() {
       mongoClient = new MongoClient(uri, { 
         serverSelectionTimeoutMS: 5000,
         connectTimeoutMS: 5000,
-        maxPoolSize: 10
+        maxPoolSize: 10,
+        retryWrites: true
       });
       await mongoClient.connect();
       mongoDb = mongoClient.db(DB_NAME);
       isConnected = true;
+      global._mongoClient = mongoClient;
+      global._mongoDb = mongoDb;
       console.log(`[Database] Successfully connected to MongoDB database "${DB_NAME}"`);
       return true;
     } catch (err) {
@@ -73,6 +79,8 @@ async function testConnection() {
     mongoDb = createPureJsMongoEngine();
     isConnected = true;
     isInitialized = true;
+    global._mongoDb = mongoDb;
+    global._mongoDbInitialized = true;
     console.log('[Database] Connected to high-speed resilient MongoDB engine with full dataset.');
     return true;
   } catch (err) {

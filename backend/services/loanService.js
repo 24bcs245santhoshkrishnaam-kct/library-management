@@ -462,10 +462,10 @@ async function recordBookReturn(transactionId, user = { name: 'Library Staff', r
 
     const transaction = txRows[0];
 
-    // Check student authorization: student can only return their own loan
-    if (user && user.role === 'student' && transaction.user_id !== user.id) {
+    // Strict Role Validation: Only authorized librarians or admins can process book returns (Phase 3 & Phase 4)
+    if (!user || (user.role !== 'librarian' && user.role !== 'admin')) {
       await conn.rollback();
-      const error = new Error('Unauthorized: You can only return books borrowed under your own account.');
+      const error = new Error('Unauthorized: Only librarians and library staff are authorized to process book returns.');
       error.statusCode = 403;
       throw error;
     }

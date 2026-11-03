@@ -175,7 +175,10 @@ async function createBook(req, res) {
       return res.status(400).json({ error: 'Validation Error', message: 'Title, Author, and Category are required.' });
     }
 
-    const copies = parseInt(total_copies, 10) || 1;
+    const copies = parseInt(total_copies, 10);
+    if (isNaN(copies) || copies < 1) {
+      return res.status(400).json({ error: 'Validation Error', message: 'Total copies must be at least 1.' });
+    }
 
     const [result] = await db.query(`
       INSERT INTO books (title, author, department, category, isbn, description, cover_image, total_copies, available_copies, shelf_location, published_year, publisher)
@@ -225,6 +228,27 @@ async function updateBook(req, res) {
       is_damaged,
       is_lost
     } = req.body;
+
+    // Phase 9: Inventory rules validation
+    if (total_copies !== undefined && total_copies !== null) {
+      const tot = parseInt(total_copies, 10);
+      if (isNaN(tot) || tot < 1) {
+        return res.status(400).json({ error: 'Validation Error', message: 'Total copies cannot be less than 1.' });
+      }
+    }
+
+    if (available_copies !== undefined && available_copies !== null) {
+      const avail = parseInt(available_copies, 10);
+      if (isNaN(avail) || avail < 0) {
+        return res.status(400).json({ error: 'Validation Error', message: 'Available copies cannot be negative.' });
+      }
+      if (total_copies !== undefined && total_copies !== null) {
+        const tot = parseInt(total_copies, 10);
+        if (avail > tot) {
+          return res.status(400).json({ error: 'Validation Error', message: 'Available copies cannot exceed total copies.' });
+        }
+      }
+    }
 
     await db.query(`
       UPDATE books 
@@ -276,8 +300,25 @@ async function getBookCoverSvg(req, res) {
 async function deleteBook(req, res) {
   try {
     const bookId = parseInt(req.params.id, 10);
+    if (!bookId) {
+      return res.status(400).json({ error: 'Validation Error', message: 'Valid Book ID is required.' });
+    }
+
+    // Phase 9: Prevent deleting books with active borrowing records
+    const activeLoans = await db.query(
+      "SELECT id, user_id FROM transactions WHERE book_id = ? AND status = 'Issued'",
+      [bookId]
+    );
+
+    if (activeLoans && activeLoans.length > 0) {
+      return res.status(400).json({
+        error: 'Active Loan Conflict',
+        message: `Cannot delete book #${bookId}: It is currently checked out on ${activeLoans.length} active loan(s). Please wait until all copies are returned before removing.`
+      });
+    }
+
     await db.query('DELETE FROM books WHERE id = ?', [bookId]);
-    res.json({ success: true, message: `Book #${bookId} removed from library catalogue.` });
+    res.json({ success: true, message: `Book #${bookId} safely removed from library catalogue.` });
   } catch (err) {
     console.error('[Delete Book Error]:', err);
     res.status(500).json({ error: 'Internal Server Error', message: err.message });

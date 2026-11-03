@@ -343,21 +343,16 @@ export default function StudentDashboard({ onAskChatbot }) {
     }
   };
 
-  // Student Self-Service Return Action (Feature 1)
-  const handleReturn = async (loanId, title) => {
-    try {
-      const res = await returnBookLoan(loanId);
-      setNotification({
-        type: 'success',
-        message: res.message || `Book "${title}" successfully returned! Library copies restored.`
-      });
-      await Promise.all([fetchLoans(), fetchBooks(), fetchNotifications(true), fetchAiPicks()]);
-    } catch (err) {
-      setNotification({
-        type: 'danger',
-        message: err.response?.data?.message || err.message || 'Failed to return book'
-      });
-    }
+  // Phase 8: Comprehensive Clear Button for search, filters, collections, and AI search
+  const handleClearSearchAndFilters = () => {
+    setSearchQuery('');
+    setSelectedDept('All');
+    setAvailableOnly(false);
+    setSelectedCollection('All');
+    setSelectedCategory('All');
+    setAiSearchQuery('');
+    setAiSearchResults(null);
+    fetchBooks('', 'All', false, 'All', 'All');
   };
 
   // Renew Loan Action
@@ -1016,16 +1011,15 @@ export default function StudentDashboard({ onAskChatbot }) {
                     fetchBooks(e.target.value, selectedDept, availableOnly, selectedCollection, selectedCategory);
                   }}
                 />
-                {searchQuery && (
+                {(searchQuery || selectedDept !== 'All' || availableOnly || selectedCollection !== 'All' || selectedCategory !== 'All') && (
                   <button 
                     type="button" 
-                    className="btn btn-sm btn-light border-0 me-2"
-                    onClick={() => {
-                      setSearchQuery('');
-                      fetchBooks('', selectedDept, availableOnly, selectedCollection, selectedCategory);
-                    }}
+                    className="btn btn-sm btn-light border me-2 d-flex align-items-center gap-1 text-secondary"
+                    onClick={handleClearSearchAndFilters}
+                    title="Clear search and reset all filters"
                   >
-                    Clear
+                    <X size={14} />
+                    <span>Clear All</span>
                   </button>
                 )}
               </div>
@@ -1774,24 +1768,23 @@ export default function StudentDashboard({ onAskChatbot }) {
                           <td>
                             {loan.is_overdue ? (
                               <span className={`badge-overdue badge-overdue-${loan.overdue_color}`}>
-                                Active Overdue ({loan.days_overdue}d)
+                                OVERDUE ({loan.days_overdue}d)
                               </span>
                             ) : (
                               <span className="badge-issued-blue px-2.5 py-1 rounded-pill small fw-semibold">
-                                Active ({loan.days_left}d left)
+                                BORROWED ({loan.days_left}d left)
                               </span>
                             )}
                           </td>
                           <td>
                             <div className="d-flex align-items-center gap-1.5 flex-wrap">
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-outline-danger rounded-pill py-1 px-2.5 small fw-semibold"
-                                title="Return book to library"
-                                onClick={() => handleReturn(loan.transaction_id, loan.title)}
+                              <span 
+                                className="badge bg-light text-secondary border px-2.5 py-1 rounded-pill small"
+                                style={{ fontSize: '0.72rem' }}
+                                title="Physical returns are processed exclusively by the librarian at the circulation desk"
                               >
-                                Return Book
-                              </button>
+                                Return at Desk
+                              </span>
                               <button
                                 type="button"
                                 className="btn btn-sm btn-outline-navy rounded-pill py-1 px-2.5 small"
@@ -1958,7 +1951,7 @@ export default function StudentDashboard({ onAskChatbot }) {
                               {isLateReturn ? (
                                 <div>
                                   <span className="badge-overdue badge-overdue-darkorange">
-                                    <AlertTriangle size={12} /> Returned Overdue ({p.days_late || p.days_overdue}d Late)
+                                    <AlertTriangle size={12} /> RETURNED (Late - {p.days_late || p.days_overdue}d Overdue)
                                   </span>
                                   <div className="text-muted" style={{ fontSize: '0.72rem', marginTop: '2px' }}>
                                     Returned after scheduled due date
@@ -1967,7 +1960,7 @@ export default function StudentDashboard({ onAskChatbot }) {
                               ) : (
                                 <div>
                                   <span className="badge bg-success-subtle text-success px-2.5 py-1 rounded-pill small fw-bold d-inline-flex align-items-center gap-1">
-                                    <CheckCircle size={13} /> Returned On-Time (Unoverdue)
+                                    <CheckCircle size={13} /> RETURNED (On-Time)
                                   </span>
                                   <div className="text-muted" style={{ fontSize: '0.72rem', marginTop: '2px' }}>
                                     Returned on or before due date
