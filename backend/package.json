@@ -4,7 +4,6 @@
   "description": "Smart Library Management System Backend with AI features",
   "main": "server.js",
   "scripts": {
-    "prestart": "lsof -ti :5001 | xargs kill -9 2>/dev/null || true",
     "start": "node server.js",
     "seed": "node database/seed.js",
     "test": "node test/test-all.js && node test/test-e2e-http.js",

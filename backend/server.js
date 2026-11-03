@@ -146,6 +146,9 @@ async function startServer(retries = 2) {
 
 if (require.main === module) {
   startServer();
+} else {
+  // Proactively warm up DB connection when loaded as a module / service
+  db.testConnection().catch(e => console.warn('[Server] Module DB connection notice:', e.message));
 }
 
 module.exports = app;
